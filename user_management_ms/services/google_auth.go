@@ -1,0 +1,335 @@
+package services
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+	"user_management_ms/config"
+	"user_management_ms/domain"
+	"user_management_ms/dtos/request"
+	"user_management_ms/dtos/response"
+	"user_management_ms/repository"
+	"user_management_ms/util"
+
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"google.golang.org/api/idtoken"
+	"gorm.io/gorm"
+)
+
+type IGoogleAuthService interface {
+	LoginGoogle(state string) string
+	ExchangeGoogleToken(code string) (*oauth2.Token, error)
+	GetUserInfo(code string) (*response.GoogleUser, error)
+	VerifyGoogleIDToken(idToken string) (*response.GoogleUser, error)
+	FindUserByGoogleID(id string) (*domain.User, error)
+	StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error)
+	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponse, error)
+	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error)
+	SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error)
+	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error)
+	CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error)
+	SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error)
+}
+
+type GoogleAuthService struct {
+	db         *gorm.DB
+	oauthConf  *oauth2.Config
+	jwt        IJWTService
+	googleRepo repository.IGoogleRepository
+	redis      IRedisService
+}
+
+func NewGoogleAuthService(db *gorm.DB, oauthConf *oauth2.Config, googleRepo repository.IGoogleRepository, jwtService IJWTService, rdb IRedisService) IGoogleAuthService {
+	return &GoogleAuthService{googleRepo: googleRepo, oauthConf: oauthConf, jwt: jwtService, db: db, redis: rdb}
+}
+func (g *GoogleAuthService) LoginGoogle(state string) string {
+	url := g.oauthConf.AuthCodeURL(state)
+	return url
+}
+
+func (g *GoogleAuthService) ExchangeGoogleToken(code string) (*oauth2.Token, error) {
+	token, err := g.oauthConf.Exchange(context.Background(), code)
+	if err != nil {
+		return nil, err
+	}
+	return token, err
+}
+
+func (g *GoogleAuthService) GetUserInfo(code string) (*response.GoogleUser, error) {
+
+	token, err := g.ExchangeGoogleToken(code)
+	if err != nil {
+		return nil, err
+	}
+
+	client := g.oauthConf.Client(context.Background(), token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		return nil, errors.New("failed to get user info")
+	}
+	defer resp.Body.Close()
+
+	var gUser response.GoogleUser
+	if err := json.NewDecoder(resp.Body).Decode(&gUser); err != nil {
+		return nil, errors.New("failed to decode user info")
+	}
+	return &gUser, nil
+}
+
+func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.GoogleUser, error) {
+	payload, err := idtoken.Validate(context.Background(), idToken, config.Conf.Application.OAuth2.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Claims: %#v\n", payload.Claims)
+	user := &response.GoogleUser{
+		ID:            payload.Claims["sub"].(string),
+		Email:         payload.Claims["email"].(string),
+		VerifiedEmail: payload.Claims["email_verified"].(bool),
+	}
+
+	return user, nil
+}
+
+func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
+	otp := util.GenerateOTP()
+	expire := time.Now().Add(5 * time.Minute)
+
+	// 1. Try to find user by email + phone
+	user, err := g.googleRepo.GetUserWithEmailAndPhone(g.db, req.Email, req.Phone)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	// Case 1: Already verified
+	if user != nil && user.Phone != "" && user.PhoneVerified {
+		return &response.GoogleResponse{
+			Email:         req.Email,
+			Phone:         req.Phone,
+			Status:        "verified",
+			PhoneVerified: user.PhoneVerified,
+		}, nil
+	}
+
+	// Case 2:User Email and Phone exists but not verified → resend OTP
+	if user != nil && user.Phone != "" && !user.PhoneVerified {
+		user.PhoneOtp = otp
+		user.PhoneOtpExpireDate = &expire
+		if _, err := g.googleRepo.Update(g.db, user); err != nil {
+			return nil, err
+		}
+		if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: user.Phone, PhoneOTP: otp}); err != nil {
+			return nil, err
+		}
+		return &response.GoogleResponse{
+			Email:         req.Email,
+			Phone:         req.Phone,
+			Status:        "phone_verification_pending",
+			PhoneVerified: user.PhoneVerified,
+		}, nil
+	}
+
+	//Case 3:User exists but phone not and not verified
+	if user != nil && user.Phone == "" {
+		isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
+		if err != nil {
+			return nil, err
+		}
+		if isExists {
+			return nil, errors.New("user with this phone already exists")
+		}
+		updatedUser, err := g.googleRepo.UpdateGoogleUserPhone(g.db, req.Email, req.Phone, otp, expire)
+		if err != nil {
+			return nil, err
+		}
+		// Send OTP via Kafka
+		if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: updatedUser.Phone, PhoneOTP: otp}); err != nil {
+			return nil, err
+		}
+
+		return &response.GoogleResponse{
+			Email:         updatedUser.Email,
+			Phone:         updatedUser.Phone,
+			Status:        "phone_verification_pending",
+			PhoneVerified: updatedUser.PhoneVerified,
+		}, nil
+	}
+
+	//Case 4:User doesn't exists
+	if user == nil {
+		return nil, errors.New("No user ")
+	}
+
+	return nil, nil
+}
+
+func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) {
+	user, err := g.googleRepo.FindUserByGoogleId(g.db, id)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponse, error) {
+	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	if err != nil {
+		return nil, err
+	}
+	if user.PhoneOtp != req.PhoneOTP || time.Now().After(*user.PhoneOtpExpireDate) {
+		return nil, errors.New("invalid or expired OTP")
+	}
+	user.PhoneVerified = true
+	user.PhoneOtp = ""
+	user.PhoneOtpExpireDate = &time.Time{}
+
+	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+		return nil, err
+	}
+	return &response.OTPResponse{
+		Email:   req.Email,
+		Phone:   req.Phone,
+		Status:  "otp_verified",
+		Message: "Completion of registration is needed ",
+	}, nil
+}
+
+func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error) {
+	// 1. Check if user exists
+	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Ensure phone is verified
+	if !user.PhoneVerified {
+		return nil, errors.New("phone number not verified, complete phone verification first")
+	}
+	if user.Password != "" {
+		return nil, errors.New("registration already completed")
+	}
+
+	// 3. Hash password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Update birthday + password
+	user, err = g.googleRepo.UpdateUserBirthdayAndPassword(
+		g.db,
+		req.Email,
+		string(hashedPassword),
+		req.BirthDate,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. Generate tokens
+	tokens, err := g.jwt.GenerateTokens(user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response.Tokens{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}, nil
+}
+
+func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error) {
+	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	if err != nil {
+		return nil, err
+	}
+	otp := util.GenerateOTP()
+	expire := time.Now().Add(5 * time.Minute)
+	user.EmailOtp = otp
+	user.EmailOtpExpireDate = &expire
+	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+		return nil, err
+	}
+	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: otp}); err != nil {
+		return nil, err
+	}
+	return &response.OTPResponseEmail{
+		Email:   req.Email,
+		Status:  "otp_sent",
+		Message: "Email OTP sent",
+	}, nil
+}
+
+func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
+	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	if err != nil {
+		return nil, err
+	}
+	if user.EmailOtp != req.EmailOTP || time.Now().After(*user.EmailOtpExpireDate) {
+		return nil, errors.New("invalid or expired OTP")
+	}
+	user.EmailOtp = ""
+	user.EmailOtpExpireDate = &time.Time{}
+	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+		return nil, err
+	}
+	tokens, err := g.jwt.GenerateTokens(user)
+	if err != nil {
+		return nil, err
+	}
+	return &response.Tokens{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}, nil
+}
+
+// return:User,new user created,error
+func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error) {
+	// Check if a user already exists with this email
+	user, err := g.googleRepo.FindUserByEmail(g.db, email)
+	if err == nil && user != nil {
+		// User exists → link Google ID
+		if user.GoogleID == "" {
+			user.GoogleID = googleId
+			if _, err := g.googleRepo.Update(g.db, user); err != nil {
+				return nil, false, err
+			}
+		}
+		// return (user, false=new user created?, nil)
+		return user, false, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// No user exists → create new user
+		newUser, err := g.googleRepo.Create(g.db, &domain.User{Email: email, GoogleID: googleId})
+		if err != nil {
+			return nil, false, err
+		}
+		return newUser, true, nil
+	}
+	return nil, false, err
+}
+
+func (g *GoogleAuthService) SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error) {
+	user, err := g.googleRepo.FindUserByPhoneNumber(g.db, req.Phone)
+	if err != nil {
+		return nil, err
+	}
+	otp := util.GenerateOTP()
+	expire := time.Now().Add(5 * time.Minute)
+	user.PhoneOtp = otp
+	user.PhoneOtpExpireDate = &expire
+	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+		return nil, err
+	}
+	if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: req.Phone, PhoneOTP: otp}); err != nil {
+		return nil, err
+	}
+	return &response.OTPResponsePhone{
+		Phone:   req.Phone,
+		Status:  "otp_sent",
+		Message: "Email OTP sent",
+	}, nil
+}
