@@ -7,3 +7,7 @@ application:
     password: rvpx szjl njar mzfz
     host: smtp.gmail.com
     port: 587
+  twilio:
+    sid:
+    token:
+    from:
