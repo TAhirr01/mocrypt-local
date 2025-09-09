@@ -51,6 +51,8 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/login", s.AuthController.LoginLocal)
 	authGroup.Post("/verify-login-otp", s.AuthController.VerifyLoginOTP)
 	authGroup.Post("/refresh-token", s.AuthController.RefreshToken)
+	authGroup.Get("/setup-2fa", s.AuthController.Setup2FA)
+	authGroup.Post("/verify-2fa", s.AuthController.Verify2FA)
 
 	authGroup.Get("/google/call-back", s.GoogleAuthController.GoogleCallback)
 	authGroup.Get("/google/login", s.GoogleAuthController.GoogleLogin)
@@ -62,6 +64,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/register/start/:userId", s.WebAuthnController.RegisterStart)
 	authGroup.Post("/register/finish/:userId", s.WebAuthnController.RegisterFinish)
 	authGroup.Post("/login/start/:userId", s.WebAuthnController.LoginStart)
+
 	//authGroup.Post("/login/finish/:userId", s.WebAuthnController.LoginFinish)
 	return app
 }

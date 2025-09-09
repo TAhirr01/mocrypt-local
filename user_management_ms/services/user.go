@@ -11,6 +11,8 @@ import (
 	"user_management_ms/repository"
 	"user_management_ms/util"
 
+	"github.com/pquerna/otp/totp"
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -23,6 +25,8 @@ type IUserService interface {
 	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error)
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
+	Setup2FA(email, phone string) ([]byte, error)
+	Verify2FA(email, phone, code string) (bool, error)
 	//ShouldForceFullAuth(req *request.CheckLogin, limit time.Duration) bool
 }
 
@@ -328,6 +332,52 @@ func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Toke
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
 	}, nil
+}
+
+func (u *UserService) Setup2FA(email, phone string) ([]byte, error) {
+	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+	if err != nil {
+		return nil, err
+	}
+	if user.Is2FAVerified {
+		return nil, errors.New("user already has 2FA verified")
+	}
+
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Mocrypt Security Issuer",
+		AccountName: user.Email,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	user.Google2FASecret = key.Secret()
+	if err := u.repo.Update(u.db, user); err != nil {
+		return nil, err
+	}
+
+	png, err := qrcode.Encode(key.URL(), qrcode.Medium, 256)
+	if err != nil {
+		return nil, err
+	}
+
+	return png, nil
+}
+
+func (u *UserService) Verify2FA(email, phone, code string) (bool, error) {
+	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+	if err != nil {
+		return false, err
+	}
+	valid := totp.Validate(code, user.Google2FASecret)
+	if valid {
+		user.Is2FAVerified = true
+		err := u.repo.Update(u.db, user)
+		if err != nil {
+			log.Println("Failed to update user:", err)
+		}
+	}
+	return valid, nil
 }
 
 //func (u *UserService) HasUserCompletedOtpVerification(email string) (bool, error) {

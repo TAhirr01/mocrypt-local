@@ -16,6 +16,8 @@ type IAuthController interface {
 	ResendOTP(c *fiber.Ctx) error
 	VerifyLoginOTP(c *fiber.Ctx) error
 	RefreshToken(c *fiber.Ctx) error
+	Setup2FA(c *fiber.Ctx) error
+	Verify2FA(c *fiber.Ctx) error
 }
 
 var validate = validator.New()
@@ -169,6 +171,40 @@ func (ac *AuthController) RefreshToken(c *fiber.Ctx) error {
 		})
 	}
 	return c.Status(fiber.StatusOK).JSON(response)
+}
+
+func (ac *AuthController) Setup2FA(c *fiber.Ctx) error {
+	email := c.Query("email")
+	phone := c.Query("phone")
+
+	png, err := ac.userService.Setup2FA(email, phone)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	c.Set("Content-Type", "image/png")
+	return c.Send(png)
+}
+
+func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
+	email := c.Query("email")
+	phone := c.Query("phone")
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+	verified, err := ac.userService.Verify2FA(email, phone, body.Code)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	if !verified {
+		return c.Status(400).JSON(fiber.Map{"error": "Invalid 2FA code"})
+	}
+
+	return c.JSON(fiber.Map{"message": "2FA verified, access granted"})
 }
 
 //func (ac *AuthController) CheckLogin(c *fiber.Ctx) error {

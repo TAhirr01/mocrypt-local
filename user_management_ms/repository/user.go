@@ -28,6 +28,7 @@ type IUserRepository interface {
 	SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error
 	UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error
 	UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error
+	GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error)
 }
 type UserRepository struct {
 }
@@ -126,8 +127,8 @@ func (u *UserRepository) UpdateUserVerification(db *gorm.DB, email string, verif
 func (u *UserRepository) DeteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error {
 	user.PhoneOtp = ""
 	user.EmailOtp = ""
-	user.EmailOtpExpireDate = &time.Time{}
-	user.PhoneOtpExpireDate = &time.Time{}
+	user.EmailOtpExpireDate = nil
+	user.PhoneOtpExpireDate = nil
 	return db.Save(user).Error
 }
 
@@ -176,4 +177,10 @@ func (u *UserRepository) UpdateSignCountByCredentialID(db *gorm.DB, credentialID
 	return db.Model(&domain.Passkey{}).
 		Where("credential_id = ?", credentialID).
 		Update("sign_count", signCount).Error
+}
+
+func (u *UserRepository) GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error) {
+	var user domain.User
+	db.Where("email = ? AND phone = ? AND password is not null", email, phone).First(&user)
+	return &user, nil
 }

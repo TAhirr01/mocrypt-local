@@ -204,7 +204,7 @@ func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) 
 	}
 	user.PhoneVerified = true
 	user.PhoneOtp = ""
-	user.PhoneOtpExpireDate = &time.Time{}
+	user.PhoneOtpExpireDate = nil
 
 	if _, err := g.googleRepo.Update(g.db, user); err != nil {
 		return nil, err
@@ -292,7 +292,7 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 		return nil, errors.New("invalid or expired OTP")
 	}
 	user.EmailOtp = ""
-	user.EmailOtpExpireDate = &time.Time{}
+	user.EmailOtpExpireDate = nil
 	if _, err := g.googleRepo.Update(g.db, user); err != nil {
 		return nil, err
 	}

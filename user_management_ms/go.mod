@@ -28,6 +28,7 @@ require (
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
@@ -69,8 +70,10 @@ require (
 	github.com/microsoft/go-mssqldb v1.8.2 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect

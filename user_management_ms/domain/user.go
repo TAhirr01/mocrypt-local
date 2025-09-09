@@ -23,6 +23,8 @@ type User struct {
 	PhoneVerified      bool       `json:"phone_verified"`
 	EmailOtpExpireDate *time.Time `gorm:"default:NULL" json:"email_otp_expire_date"`
 	PhoneOtpExpireDate *time.Time `gorm:"default:NULL" json:"phone_otp_expire_date"`
+	Google2FASecret    string     // secret for TOTP
+	Is2FAVerified      bool       `gorm:"default:false"`
 	Passkeys           []Passkey  `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user_passkeys"`
 }
 

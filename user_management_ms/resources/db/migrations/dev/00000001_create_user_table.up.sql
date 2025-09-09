@@ -17,5 +17,7 @@ CREATE TABLE users
     phone_otp_expire_date DATETIME2              DEFAULT NULL,
     email_otp             NVARCHAR(100),
     phone_otp             NVARCHAR(100),
+    google2_fa_secret     VARCHAR(255),
+    is2_fa_verified       BIT                    DEFAULT 0
     --     user_type     NVARCHAR(100) NOT NULL
 );
