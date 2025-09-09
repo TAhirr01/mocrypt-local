@@ -51,6 +51,6 @@ type OAuth2 struct {
 
 type WebAuthn struct {
 	RpDisplayName string `yaml:"rp-display-name" json:"rp_display_name"`
-	RpOrigin      string `yaml:"rp-origin" json:"rp_origins"`
+	RpOrigin      string `yaml:"rp-origin" json:"rp_origin"`
 	RpID          string `yaml:"rp-id" json:"rp_id"`
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 	"user_management_ms/config"
 	"user_management_ms/domain"
@@ -26,7 +27,7 @@ type IGoogleAuthService interface {
 	VerifyGoogleIDToken(idToken string) (*response.GoogleUser, error)
 	FindUserByGoogleID(id string) (*domain.User, error)
 	StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error)
-	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponse, error)
+	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error)
 	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error)
 	SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error)
 	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error)
@@ -106,6 +107,15 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 
 	// Case 1: Already verified
 	if user != nil && user.Phone != "" && user.PhoneVerified {
+		user.EmailOtp = otp
+		user.EmailOtpExpireDate = &expire
+		if _, err := g.googleRepo.Update(g.db, user); err != nil {
+			return nil, err
+		}
+		if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: user.Email, EmailOTP: otp}); err != nil {
+			return nil, err
+		}
+		log.Println("Case 1: Already verified ")
 		return &response.GoogleResponse{
 			Email:         req.Email,
 			Phone:         req.Phone,
@@ -116,6 +126,7 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 
 	// Case 2:User Email and Phone exists but not verified → resend OTP
 	if user != nil && user.Phone != "" && !user.PhoneVerified {
+		log.Println("Case 2: User Email and Phone exists but not verified → resend OTP")
 		user.PhoneOtp = otp
 		user.PhoneOtpExpireDate = &expire
 		if _, err := g.googleRepo.Update(g.db, user); err != nil {
@@ -125,8 +136,8 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 			return nil, err
 		}
 		return &response.GoogleResponse{
-			Email:         req.Email,
-			Phone:         req.Phone,
+			Email:         user.Email,
+			Phone:         user.Phone,
 			Status:        "phone_verification_pending",
 			PhoneVerified: user.PhoneVerified,
 		}, nil
@@ -134,6 +145,7 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 
 	//Case 3:User exists but phone not and not verified
 	if user != nil && user.Phone == "" {
+		log.Println("Case 3: User exists but phone not and not verified")
 		isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
 		if err != nil {
 			return nil, err
@@ -157,7 +169,15 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 			PhoneVerified: updatedUser.PhoneVerified,
 		}, nil
 	}
-
+	//Case 4:User exists but requested phone is not user's
+	if user != nil && user.Phone != "" && user.Phone != req.Phone {
+		log.Println("Case 4:User exists but requested phone is not user's")
+		return &response.GoogleResponse{
+			Email:  user.Email,
+			Phone:  user.Phone,
+			Status: "phone_mismatch",
+		}, nil
+	}
 	//Case 4:User doesn't exists
 	if user == nil {
 		return nil, errors.New("No user ")
@@ -174,7 +194,7 @@ func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) 
 	return user, nil
 }
 
-func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponse, error) {
+func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error) {
 	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
 	if err != nil {
 		return nil, err
@@ -189,11 +209,11 @@ func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) 
 	if _, err := g.googleRepo.Update(g.db, user); err != nil {
 		return nil, err
 	}
-	return &response.OTPResponse{
-		Email:   req.Email,
-		Phone:   req.Phone,
-		Status:  "otp_verified",
-		Message: "Completion of registration is needed ",
+	return &response.OTPResponsePhone{
+		Phone:         req.Phone,
+		PhoneVerified: user.PhoneVerified,
+		Status:        "otp_verified",
+		Message:       "Completion of registration is needed ",
 	}, nil
 }
 

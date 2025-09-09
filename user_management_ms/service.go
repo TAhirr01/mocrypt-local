@@ -38,14 +38,16 @@ type service struct {
 	googleRepository repository.IGoogleRepository
 
 	// Service
-	userService   services.IUserService
-	jwtService    services.IJWTService
-	googleService services.IGoogleAuthService
-	redisService  services.IRedisService
+	userService    services.IUserService
+	jwtService     services.IJWTService
+	googleService  services.IGoogleAuthService
+	redisService   services.IRedisService
+	passkeyService services.IPasskeyService
 
 	// Controller
 	authController       controller.IAuthController
 	googleAuthController controller.IGoogleAuthController
+	passkeyController    controller.IPasskeyController
 }
 
 // NOTE: Service Start
@@ -63,12 +65,12 @@ func (s *service) Start() {
 	log.Info("WebAuthn config")
 	s.webAuthn = config.InitWebAuthn()
 	// NOTE: Dependency Injections
-
+	log.Info("WebAuthn configurated successfully")
 	s.DependencyInjection()
 	//TODO: coment and log
 
 	// NOTE: Start Fiber server...
-	app := NewServer(s.authController, s.googleAuthController).Start()
+	app := NewServer(s.authController, s.googleAuthController, s.passkeyController).Start()
 
 	log.Info("Server starting..")
 	// NOTE: Server start with goroutine
@@ -90,7 +92,6 @@ func (s *service) DependencyInjection() {
 		AccessTTL:  time.Duration(config.Conf.Application.Security.TokenValidityInSeconds) * time.Second,
 		RefreshTTL: time.Duration(config.Conf.Application.Security.TokenValidityInSecondsForRememberMe) * time.Second,
 	}
-	log.Info("JWT service token-time:", time.Duration(config.Conf.Application.Security.TokenValidityInSeconds))
 	// NOTE: Repositories Injections
 	s.userRepository = repository.NewUserRepository()
 	s.googleRepository = repository.NewGoogleRepository()
@@ -98,9 +99,11 @@ func (s *service) DependencyInjection() {
 	s.redisService = services.NewRedisService(s.redisClient)
 	s.userService = services.NewUserService(s.dbConnection, s.userRepository, s.redisService, s.jwtService)
 	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.googleRepository, s.jwtService, s.redisService)
+	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService)
 	// NOTE: Controllers Injections
 	s.authController = controller.NewAuthController(s.userService)
 	s.googleAuthController = controller.NewGoogleAuthController(s.googleService)
+	s.passkeyController = controller.NewPasskeyController(s.passkeyService)
 
 }
 

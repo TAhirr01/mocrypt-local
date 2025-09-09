@@ -20,6 +20,7 @@ func main() {
 	// NOTE: Graceful shutdown when panic time
 	defer func() {
 		if r := recover(); r != nil {
+			log.Fatalf("[Fatal] panic: %v", r)
 			os.Exit(1)
 		}
 	}()

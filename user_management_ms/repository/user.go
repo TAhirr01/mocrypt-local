@@ -1,11 +1,12 @@
 package repository
 
 import (
+	"errors"
 	"time"
 	"user_management_ms/domain"
 	"user_management_ms/util"
 
-	"github.com/pkg/errors"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +24,10 @@ type IUserRepository interface {
 	SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) error
 	DeteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error
 	SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *domain.User, emailOtp, phoneOtp string) error
+	GetUserWithPasskeys(db *gorm.DB, userId uint) (*domain.User, error)
+	SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error
+	UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error
+	UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error
 }
 type UserRepository struct {
 }
@@ -133,4 +138,42 @@ func (u *UserRepository) SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *d
 	user.EmailOtpExpireDate = &t
 	user.PhoneOtpExpireDate = &t
 	return db.Save(user).Error
+}
+
+func (u *UserRepository) GetUserWithPasskeys(db *gorm.DB, userId uint) (*domain.User, error) {
+	var user domain.User
+	err := db.Preload("Passkeys").First(&user, userId).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (u *UserRepository) SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error {
+	passkey := domain.Passkey{
+		UserID:          userID,
+		CredentialID:    cred.ID,
+		PublicKey:       cred.PublicKey,
+		SignCount:       cred.Authenticator.SignCount,
+		AAGUID:          cred.Authenticator.AAGUID,
+		AttestationType: cred.AttestationType,
+		Authenticator:   authBytes,
+	}
+
+	if err := db.Create(&passkey).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (u *UserRepository) UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error {
+	return db.Model(&domain.Passkey{}).
+		Where("user_id = ?", userID).
+		Update("sign_count", signCount).Error
+}
+
+func (u *UserRepository) UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error {
+	return db.Model(&domain.Passkey{}).
+		Where("credential_id = ?", credentialID).
+		Update("sign_count", signCount).Error
 }

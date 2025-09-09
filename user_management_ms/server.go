@@ -5,21 +5,25 @@ import (
 	"user_management_ms/controller"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
 type Server struct {
 	AuthController       controller.IAuthController
 	GoogleAuthController controller.IGoogleAuthController
+	WebAuthnController   controller.IPasskeyController
 }
 
 // NOTE: Server Constructor
 func NewServer(
 	AuthController controller.IAuthController,
 	GoogleAuthController controller.IGoogleAuthController,
+	WebAuthnController controller.IPasskeyController,
 ) *Server {
 	return &Server{
 		AuthController:       AuthController,
 		GoogleAuthController: GoogleAuthController,
+		WebAuthnController:   WebAuthnController,
 	}
 }
 
@@ -27,6 +31,12 @@ func NewServer(
 func (s *Server) Start() *fiber.App {
 	// NOTE: Initialize Fiber Server
 	app := fiber.New()
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "http://localhost:5500",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+	}))
 
 	// NOTE: Define API paths (context path and grouping by version)
 	contextPath := app.Group(config.Conf.Application.Server.ContextPath)
@@ -41,12 +51,18 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/login", s.AuthController.LoginLocal)
 	authGroup.Post("/verify-login-otp", s.AuthController.VerifyLoginOTP)
 	authGroup.Post("/refresh-token", s.AuthController.RefreshToken)
+
 	authGroup.Get("/google/call-back", s.GoogleAuthController.GoogleCallback)
 	authGroup.Get("/google/login", s.GoogleAuthController.GoogleLogin)
 	authGroup.Post("/google/request-otp", s.GoogleAuthController.GoogleRequestPhoneOTP)
 	authGroup.Post("/google/verify-otp/:email", s.GoogleAuthController.GoogleVerifyRequestOTP)
 	authGroup.Post("/google/complete-registration", s.GoogleAuthController.CompleteGoogleRegistration)
 	authGroup.Post("/google/login/verify-otp", s.GoogleAuthController.GoogleVerifyLoginRequestOtp)
+
+	authGroup.Post("/register/start/:userId", s.WebAuthnController.RegisterStart)
+	authGroup.Post("/register/finish/:userId", s.WebAuthnController.RegisterFinish)
+	authGroup.Post("/login/start/:userId", s.WebAuthnController.LoginStart)
+	//authGroup.Post("/login/finish/:userId", s.WebAuthnController.LoginFinish)
 	return app
 }
 

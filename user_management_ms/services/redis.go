@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 	"user_management_ms/config"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,6 +17,9 @@ type IRedisService interface {
 	SetRefreshToken(userId uint, refreshToken string) error
 	GetRefreshToken(userId uint) (string, error)
 	DelRefreshToken(userId uint)
+	StoreSessionRedis(userID uint, sessionData *webauthn.SessionData) error
+	GetSessionRedis(userID uint) (*webauthn.SessionData, error)
+	DeleteSessionRedis(userID uint) error
 }
 type RedisService struct {
 	rdb *redis.Client
@@ -34,4 +39,28 @@ func (s *RedisService) GetRefreshToken(userId uint) (string, error) {
 
 func (s *RedisService) DelRefreshToken(userId uint) {
 	s.rdb.Del(ctx, fmt.Sprintf("refresh_%d", userId))
+}
+
+func (s *RedisService) StoreSessionRedis(userID uint, sessionData *webauthn.SessionData) error {
+	data, _ := json.Marshal(sessionData)
+	return s.rdb.Set(ctx, fmt.Sprintf("webauthn:%d", userID), data, 5*time.Minute).Err()
+}
+
+// get session
+func (s *RedisService) GetSessionRedis(userID uint) (*webauthn.SessionData, error) {
+	val, err := s.rdb.Get(ctx, fmt.Sprintf("webauthn:%d", userID)).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	var sessionData *webauthn.SessionData
+	if err := json.Unmarshal([]byte(val), &sessionData); err != nil {
+		return nil, err
+	}
+	return sessionData, nil
+}
+
+// delete session
+func (s *RedisService) DeleteSessionRedis(userID uint) error {
+	return s.rdb.Del(ctx, fmt.Sprintf("webauthn:%d", userID)).Err()
 }

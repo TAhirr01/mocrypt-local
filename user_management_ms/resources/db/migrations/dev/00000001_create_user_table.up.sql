@@ -7,7 +7,7 @@ CREATE TABLE users
     email                 NVARCHAR(100) NOT NULL UNIQUE,
     phone                 NVARCHAR(100),
     birth_date            DATETIME2,
-    password              NVARCHAR(100),
+    password              NVARCHAR(255),
     google_id             NVARCHAR(200),
     --     last_full_auth DATETIME2 NOT NULL DEFAULT GETDATE(),
     --     last_passkey_auth DATETIME2,
@@ -17,6 +17,5 @@ CREATE TABLE users
     phone_otp_expire_date DATETIME2              DEFAULT NULL,
     email_otp             NVARCHAR(100),
     phone_otp             NVARCHAR(100),
-
     --     user_type     NVARCHAR(100) NOT NULL
 );

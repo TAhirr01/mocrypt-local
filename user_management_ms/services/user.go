@@ -16,12 +16,12 @@ import (
 )
 
 type IUserService interface {
-	RegisterRequestOTP(request *request.OTPRequest) (*response.OTPResponse, error)
+	RegisterRequestOTP(request *request.OTPRequest) (*response.RegisterResponse, error)
 	VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error)
 	CompleteRegistration(registerRequest *request.CompleteRegisterRequest) (*response.Tokens, error)
-	SendOTP(otRequest *request.OTPRequest) (*response.OTPResponse, error)
+	SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error)
 	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error)
-	LoginLocal(req *request.LoginLocalRequest) (*response.OTPResponse, error)
+	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
 	//ShouldForceFullAuth(req *request.CheckLogin, limit time.Duration) bool
 }
@@ -37,7 +37,7 @@ func NewUserService(db *gorm.DB, repo repository.IUserRepository, redis IRedisSe
 	return &UserService{db: db, repo: repo, redis: redis, jwt: jwt}
 }
 
-func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.OTPResponse, error) {
+func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.RegisterResponse, error) {
 	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, req.Email, req.Phone)
 	emailOtp := util.GenerateOTP()
 	phoneOtp := util.GenerateOTP()
@@ -45,19 +45,23 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.OTP
 		// User mövcuddur
 		if user.EmailVerified && user.PhoneVerified && user.Password == "" {
 			// User OTP verified amma registration tamamlanmayıb
-			return &response.OTPResponse{
-				Email:   user.Email,
-				Phone:   user.Phone,
-				Status:  "verified",
-				Message: "User verified, needs registration completion",
+			return &response.RegisterResponse{
+				Email:         user.Email,
+				Phone:         user.Phone,
+				EmailVerified: user.EmailVerified,
+				PhoneVerified: user.PhoneVerified,
+				Completed:     false,
+				Status:        "verified",
 			}, nil
 		} else if user.EmailVerified && user.PhoneVerified && user.Password != "" {
 			// User OTP verified və password mövcuddur → login lazımdır
-			return &response.OTPResponse{
-				Email:   user.Email,
-				Phone:   user.Phone,
-				Status:  "verified",
-				Message: "User already verified, send to login",
+			return &response.RegisterResponse{
+				Email:         user.Email,
+				Phone:         user.Phone,
+				Status:        "verified",
+				EmailVerified: user.EmailVerified,
+				PhoneVerified: user.PhoneVerified,
+				Completed:     true,
 			}, nil
 		} else if !(user.EmailVerified && user.PhoneVerified) {
 			// User mövcuddur amma OTP verified deyil → OTP göndərilməlidir
@@ -70,21 +74,22 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.OTP
 			); err != nil {
 				return nil, err
 			}
-			return &response.OTPResponse{
-				Email:   user.Email,
-				Phone:   user.Phone,
-				Status:  "verification_pending",
-				Message: "Send OTP to user",
+			return &response.RegisterResponse{
+				Email:         user.Email,
+				Phone:         user.Phone,
+				EmailVerified: user.EmailVerified,
+				PhoneVerified: user.PhoneVerified,
+				Completed:     false,
+				Status:        "verification_pending",
 			}, nil
 		}
 	} else {
 		existingUser, err := u.repo.GetUserByEmailOrPhone(u.db, req.Email, req.Phone)
 		if existingUser != nil && err == nil {
-			return &response.OTPResponse{
-				Email:   req.Email,
-				Phone:   req.Phone,
-				Status:  "user_exists",
-				Message: "user with this email or phone number already exists",
+			return &response.RegisterResponse{
+				Email:  req.Email,
+				Phone:  req.Phone,
+				Status: "exists",
 			}, errors.New("user with this email or phone number already exists")
 		}
 		// User yoxdur → yeni user yarat
@@ -105,11 +110,13 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.OTP
 			return nil, err
 		}
 
-		return &response.OTPResponse{
-			Email:   req.Email,
-			Phone:   req.Phone,
-			Status:  "created",
-			Message: "New user created, needs OTP verification",
+		return &response.RegisterResponse{
+			Email:         req.Email,
+			Phone:         req.Phone,
+			Status:        "created",
+			EmailVerified: false,
+			PhoneVerified: false,
+			Completed:     false,
 		}, nil
 	}
 
@@ -138,10 +145,11 @@ func (u *UserService) VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*r
 	}
 
 	return &response.OTPResponse{
-		Email:   user.Email,
-		Phone:   user.Phone,
-		Status:  "otp_verified",
-		Message: "Email and phone successfully verified",
+		Email:         user.Email,
+		Phone:         user.Phone,
+		Status:        "otp_verified",
+		EmailVerified: user.EmailVerified,
+		PhoneVerified: user.PhoneVerified,
 	}, nil
 }
 
@@ -189,19 +197,18 @@ func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest)
 	}, nil
 }
 
-func (u *UserService) SendOTP(req *request.OTPRequest) (*response.OTPResponse, error) {
+func (u *UserService) SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error) {
 	if err := u.repo.SaveUserOTPs(u.db, req.Email, req.Phone, 5*time.Minute); err != nil {
 		return nil, err
 	}
-	return &response.OTPResponse{
-		Email:   req.Email,
-		Phone:   req.Phone,
-		Status:  "otp_sent",
-		Message: "OTP successfully sent",
+	return &response.SendOTPResponse{
+		Email:  req.Email,
+		Phone:  req.Phone,
+		Status: "otp_sent",
 	}, nil
 }
 
-func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.OTPResponse, error) {
+func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error) {
 	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, req.Email, req.Phone)
 	if err != nil {
 		return nil, err
@@ -230,11 +237,9 @@ func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.OTPR
 		log.Println("Failed to send phone event:", err)
 	}
 
-	return &response.OTPResponse{
-		Email:   user.Email,
-		Phone:   user.Phone,
-		Status:  "otp_sent",
-		Message: "OTP sent for login via Kafka",
+	return &response.LoginResponse{
+		Email: user.Email,
+		Phone: user.Phone,
 	}, nil
 }
 

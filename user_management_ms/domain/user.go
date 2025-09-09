@@ -1,7 +1,10 @@
 package domain
 
 import (
+	"strconv"
 	"time"
+
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 type User struct {
@@ -20,38 +23,28 @@ type User struct {
 	PhoneVerified      bool       `json:"phone_verified"`
 	EmailOtpExpireDate *time.Time `gorm:"default:NULL" json:"email_otp_expire_date"`
 	PhoneOtpExpireDate *time.Time `gorm:"default:NULL" json:"phone_otp_expire_date"`
-	//Credentials     []WebAuthnCredential `gorm:"foreignKey:UserID"`
-	//LastFullAuth    *time.Time
-	//LastPasskeyAuth *time.Time
-	//WebAuthnUserHandle []byte
+	Passkeys           []Passkey  `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user_passkeys"`
 }
 
-//func (u *User) WebAuthnID() []byte {
-//	return u.WebAuthnUserHandle
-//}
-
-//func (u *User) WebAuthnName() string {
-//	return u.Email
-//}
-//
-//func (u *User) WebAuthnDisplayName() string {
-//	return u.Email
-//}
-//
-//func (u *User) WebAuthnIcon() string {
-//	return ""
-//}
-//
-//func (u *User) WebAuthnCredentials() []webauthn.Credential {
-//	creds := make([]webauthn.Credential, 0, len(u.Credentials))
-//	for _, c := range u.Credentials {
-//		creds = append(creds, webauthn.Credential{
-//			ID:        c.CredentialID,
-//			PublicKey: c.PublicKey,
-//			Authenticator: webauthn.Authenticator{
-//				SignCount: c.SignCount,
-//			},
-//		})
-//	}
-//	return creds
-//}
+func (u User) WebAuthnID() []byte {
+	return []byte(strconv.Itoa(int(u.Id)))
+}
+func (u User) WebAuthnName() string {
+	return u.Email
+}
+func (u User) WebAuthnDisplayName() string {
+	return u.Email
+}
+func (u User) WebAuthnCredentials() []webauthn.Credential {
+	var creds []webauthn.Credential
+	for _, p := range u.Passkeys {
+		creds = append(creds, webauthn.Credential{
+			ID:        p.CredentialID,
+			PublicKey: p.PublicKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: p.SignCount,
+			},
+		})
+	}
+	return creds
+}
