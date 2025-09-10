@@ -18,6 +18,7 @@ CREATE TABLE users
     email_otp             NVARCHAR(100),
     phone_otp             NVARCHAR(100),
     google2_fa_secret     VARCHAR(255),
-    is2_fa_verified       BIT                    DEFAULT 0
+    is2_fa_verified       BIT                    DEFAULT 0,
+    pin_hash              NVARCHAR(255)          DEFAULT NULL,
     --     user_type     NVARCHAR(100) NOT NULL
 );

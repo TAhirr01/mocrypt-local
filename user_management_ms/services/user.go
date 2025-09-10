@@ -27,6 +27,8 @@ type IUserService interface {
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
 	Setup2FA(email, phone string) ([]byte, error)
 	Verify2FA(email, phone, code string) (bool, error)
+	SetPIN(email, phone, pin string) error
+	VerifyPIN(email, phone, pin string) (bool, error)
 	//ShouldForceFullAuth(req *request.CheckLogin, limit time.Duration) bool
 }
 
@@ -73,8 +75,8 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 				return nil, err
 			}
 			if err := SendVerifyEmailAndPhoneNumberEvent(
-				&request.VerifyEmailEvent{Email: user.Email},
-				&request.VerifyPhoneEvent{Phone: user.Phone},
+				&request.VerifyEmailEvent{Email: user.Email, EmailOTP: emailOtp},
+				&request.VerifyPhoneEvent{Phone: user.Phone, PhoneOTP: phoneOtp},
 			); err != nil {
 				return nil, err
 			}
@@ -378,6 +380,38 @@ func (u *UserService) Verify2FA(email, phone, code string) (bool, error) {
 		}
 	}
 	return valid, nil
+}
+
+func (u *UserService) SetPIN(email, phone, pin string) error {
+	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+	if err != nil {
+		return err
+	}
+
+	hashed, err := util.HashPIN(pin)
+	if err != nil {
+		return err
+	}
+
+	user.PINHash = hashed
+	return u.repo.Update(u.db, user)
+}
+
+func (u *UserService) VerifyPIN(email, phone, pin string) (bool, error) {
+	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+	if err != nil {
+		return false, err
+	}
+
+	if user.PINHash == "" {
+		return false, errors.New("PIN not set")
+	}
+	valid := util.VerifyPIN(pin, user.PINHash)
+	if !valid {
+		return false, errors.New("invalid PIN")
+	}
+
+	return true, nil
 }
 
 //func (u *UserService) HasUserCompletedOtpVerification(email string) (bool, error) {

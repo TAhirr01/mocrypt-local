@@ -182,5 +182,8 @@ func (u *UserRepository) UpdateSignCountByCredentialID(db *gorm.DB, credentialID
 func (u *UserRepository) GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error) {
 	var user domain.User
 	db.Where("email = ? AND phone = ? AND password is not null", email, phone).First(&user)
+	if user.Password == "" {
+		return nil, errors.New("user is not completed")
+	}
 	return &user, nil
 }

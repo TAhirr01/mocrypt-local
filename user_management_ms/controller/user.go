@@ -18,6 +18,8 @@ type IAuthController interface {
 	RefreshToken(c *fiber.Ctx) error
 	Setup2FA(c *fiber.Ctx) error
 	Verify2FA(c *fiber.Ctx) error
+	SetPIN(c *fiber.Ctx) error
+	VerifyPIN(c *fiber.Ctx) error
 }
 
 var validate = validator.New()
@@ -205,6 +207,40 @@ func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "2FA verified, access granted"})
+}
+
+func (ac *AuthController) SetPIN(c *fiber.Ctx) error {
+	req := request.PINRequest{}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	err := ac.userService.SetPIN(req.Email, req.Phone, req.PIN)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"message": "PIN set successfully"})
+}
+
+func (ac *AuthController) VerifyPIN(c *fiber.Ctx) error {
+	req := request.PINRequest{}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	valid, err := ac.userService.VerifyPIN(req.Email, req.Phone, req.PIN)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	if !valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid PIN"})
+	}
+
+	return c.JSON(fiber.Map{"message": "PIN verified"})
 }
 
 //func (ac *AuthController) CheckLogin(c *fiber.Ctx) error {

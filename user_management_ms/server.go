@@ -53,6 +53,8 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/refresh-token", s.AuthController.RefreshToken)
 	authGroup.Get("/setup-2fa", s.AuthController.Setup2FA)
 	authGroup.Post("/verify-2fa", s.AuthController.Verify2FA)
+	authGroup.Post("/pin/set", s.AuthController.SetPIN)
+	authGroup.Post("/pin/verify", s.AuthController.VerifyPIN)
 
 	authGroup.Get("/google/call-back", s.GoogleAuthController.GoogleCallback)
 	authGroup.Get("/google/login", s.GoogleAuthController.GoogleLogin)
