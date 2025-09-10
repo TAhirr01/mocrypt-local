@@ -24,7 +24,6 @@ func (es *EmailService) SendVerifyUserEmail(req *dtos.VerifyEmailEvent) error {
 
 	smtpHost := config.Conf.Application.Smtp.Host
 	smtpPort := config.Conf.Application.Smtp.Port
-	log.Println("SMTP Port:", smtpPort)
 
 	subject := "Subject: Email Verification\n"
 	log.Println(req.Otp)
@@ -62,6 +61,7 @@ func (es *EmailService) ConsumeVerifyUserEvents() {
 			log.Println("Invalid message:", err)
 			continue
 		}
+		log.Println("Email OTP:", event.Otp)
 		if err := es.SendVerifyUserEmail(&dtos.VerifyEmailEvent{Email: event.Email, Otp: event.Otp}); err != nil {
 			log.Println(err)
 			return
