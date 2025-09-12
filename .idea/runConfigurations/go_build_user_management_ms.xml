@@ -1,0 +1,11 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="go build user_management_ms" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="mocrypt-backend" />
+    <working_directory value="$PROJECT_DIR$/user_management_ms" />
+    <kind value="PACKAGE" />
+    <package value="user_management_ms" />
+    <directory value="$PROJECT_DIR$" />
+    <filePath value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -1,0 +1,14 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="GoDfaErrorMayBeNotNil" enabled="true" level="WARNING" enabled_by_default="true">
+      <functions>
+        <function importPath="github.com/golang-migrate/migrate/v4" name="New" />
+      </functions>
+      <methods>
+        <method importPath="user-service/pb" receiver="UserServiceClient" name="CreateUser" />
+        <method importPath="auth-service/service" receiver="*authService" name="SendVerify" />
+      </methods>
+    </inspection_tool>
+  </profile>
+</component>
