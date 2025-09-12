@@ -15,6 +15,7 @@ type SendOTPResponse struct {
 }
 
 type RegisterResponse struct {
+	UserType      string `json:"user_type"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
 	EmailVerified bool   `json:"email_verified"`

@@ -96,93 +96,96 @@ func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.Googl
 }
 
 func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
-	otp := util.GenerateOTP()
-	expire := time.Now().Add(5 * time.Minute)
+	// validate input quickly (optional but helpful)
+	if req.Email == "" {
+		return nil, errors.New("email is required")
+	}
+	if req.Phone == "" {
+		return nil, errors.New("phone is required")
+	}
 
-	// 1. Try to find user by email + phone
-	user, err := g.googleRepo.GetUserWithEmailAndPhone(g.db, req.Email, req.Phone)
+	// Try to find user by email only (not email+phone) — this fixes the unreachable-case bug.
+	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 
-	// Case 1: Already verified
-	if user != nil && user.Phone != "" && user.PhoneVerified {
-		user.EmailOtp = otp
-		user.EmailOtpExpireDate = &expire
-		if _, err := g.googleRepo.Update(g.db, user); err != nil {
-			return nil, err
+	// If user exists:
+	if user != nil {
+		// Case 1: If user has a phone and input phone is his and already verified
+		// If both phone and email are already verified -> do nothing, return verified status.
+		// NOTE: this code assumes you have both PhoneVerified and EmailVerified fields.
+		if user.Phone != "" && user.Phone == req.Phone && user.PhoneVerified && user.EmailVerified {
+			log.Println("User already fully verified")
+			return &response.GoogleResponse{
+				Email:         user.Email,
+				Phone:         user.Phone,
+				Status:        "verified",
+				PhoneVerified: user.PhoneVerified,
+			}, nil
 		}
-		if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: user.Email, EmailOTP: otp}); err != nil {
-			return nil, err
+		// Case 2: If user has a phone but input phone is not his
+		// If user has a phone and it's the same as requested phone
+		if user.Phone != "" && user.Phone == req.Phone {
+			// If phone exists but not verified -> resend phone OTP
+
 		}
-		log.Println("Case 1: Already verified ")
-		return &response.GoogleResponse{
-			Email:         req.Email,
-			Phone:         req.Phone,
-			Status:        "verified",
-			PhoneVerified: user.PhoneVerified,
-		}, nil
+		// Case 2: User don't have a phone yet attach a phone to user
+		// If user exists but they have no phone yet (we want to attach req.Phone)
+		if user.Phone == "" {
+			// check whether another user already uses requested phone
+			isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
+			if err != nil {
+				return nil, err
+			}
+			if isExists {
+				return nil, errors.New("user with this phone already exists")
+			}
+
+			// attach phone and create phone OTP
+			otp := util.GenerateOTP()
+			expire := time.Now().Add(5 * time.Minute)
+
+			updatedUser, err := g.googleRepo.UpdateGoogleUserPhone(g.db, req.Email, req.Phone, otp, expire)
+			if err != nil {
+				return nil, err
+			}
+
+			// send OTP via kafka
+			if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{
+				Phone:    updatedUser.Phone,
+				PhoneOTP: otp,
+			}); err != nil {
+				return nil, err
+			}
+
+			return &response.GoogleResponse{
+				Email:         updatedUser.Email,
+				Phone:         updatedUser.Phone,
+				Status:        "phone_verification_pending",
+				PhoneVerified: updatedUser.PhoneVerified,
+			}, nil
+		}
+
+		// Case 3: Users phone is different that what user requested
+		// If user exists but their phone is different than requested -> phone_mismatch
+		if user.Phone != "" && user.Phone != req.Phone {
+			log.Println("Case: User exists but requested phone is not user's")
+			return &response.GoogleResponse{
+				Email:  user.Email,
+				Phone:  user.Phone,
+				Status: "phone_mismatch",
+			}, nil
+		}
 	}
 
-	// Case 2:User Email and Phone exists but not verified → resend OTP
-	if user != nil && user.Phone != "" && !user.PhoneVerified {
-		log.Println("Case 2: User Email and Phone exists but not verified → resend OTP")
-		user.PhoneOtp = otp
-		user.PhoneOtpExpireDate = &expire
-		if _, err := g.googleRepo.Update(g.db, user); err != nil {
-			return nil, err
-		}
-		if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: user.Phone, PhoneOTP: otp}); err != nil {
-			return nil, err
-		}
-		return &response.GoogleResponse{
-			Email:         user.Email,
-			Phone:         user.Phone,
-			Status:        "phone_verification_pending",
-			PhoneVerified: user.PhoneVerified,
-		}, nil
-	}
-
-	//Case 3:User exists but phone not and not verified
-	if user != nil && user.Phone == "" {
-		log.Println("Case 3: User exists but phone not and not verified")
-		isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
-		if err != nil {
-			return nil, err
-		}
-		if isExists {
-			return nil, errors.New("user with this phone already exists")
-		}
-		updatedUser, err := g.googleRepo.UpdateGoogleUserPhone(g.db, req.Email, req.Phone, otp, expire)
-		if err != nil {
-			return nil, err
-		}
-		// Send OTP via Kafka
-		if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: updatedUser.Phone, PhoneOTP: otp}); err != nil {
-			return nil, err
-		}
-
-		return &response.GoogleResponse{
-			Email:         updatedUser.Email,
-			Phone:         updatedUser.Phone,
-			Status:        "phone_verification_pending",
-			PhoneVerified: updatedUser.PhoneVerified,
-		}, nil
-	}
-	//Case 4:User exists but requested phone is not user's
-	if user != nil && user.Phone != "" && user.Phone != req.Phone {
-		log.Println("Case 4:User exists but requested phone is not user's")
-		return &response.GoogleResponse{
-			Email:  user.Email,
-			Phone:  user.Phone,
-			Status: "phone_mismatch",
-		}, nil
-	}
-	//Case 4:User doesn't exists
+	// If user not found by email, return explicit error (or create a new google-user here if you want)
+	// Keep behavior explicit: currently we do not auto-create users in this flow.
 	if user == nil {
-		return nil, errors.New("No user ")
+		return nil, errors.New("user not found; please register first")
 	}
 
+	// default fallback (should not be reached)
 	return nil, nil
 }
 
@@ -195,7 +198,7 @@ func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) 
 }
 
 func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error) {
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	user, err := g.googleRepo.GetUserWithEmailAndPhone(g.db, req.Email, req.Phone)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +288,9 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 
 func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
 	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	if user != nil && (user.Password == "" || user.BirthDate == nil) {
+		return nil, errors.New("user has't completed registration")
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 type IUserService interface {
-	RegisterRequestOTP(request *request.OTPRequest) (*response.RegisterResponse, error)
+	RegisterRequestOTP(request *request.StartRegistration) (*response.RegisterResponse, error)
 	VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error)
 	CompleteRegistration(registerRequest *request.CompleteRegisterRequest) (*response.Tokens, error)
 	SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error)
@@ -43,7 +43,7 @@ func NewUserService(db *gorm.DB, repo repository.IUserRepository, redis IRedisSe
 	return &UserService{db: db, repo: repo, redis: redis, jwt: jwt}
 }
 
-func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.RegisterResponse, error) {
+func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*response.RegisterResponse, error) {
 	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, req.Email, req.Phone)
 	emailOtp := util.GenerateOTP()
 	phoneOtp := util.GenerateOTP()
@@ -52,6 +52,7 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 		if user.EmailVerified && user.PhoneVerified && user.Password == "" {
 			// User OTP verified amma registration tamamlanmayıb
 			return &response.RegisterResponse{
+				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
 				EmailVerified: user.EmailVerified,
@@ -62,6 +63,7 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 		} else if user.EmailVerified && user.PhoneVerified && user.Password != "" {
 			// User OTP verified və password mövcuddur → login lazımdır
 			return &response.RegisterResponse{
+				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
 				Status:        "verified",
@@ -81,6 +83,7 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 				return nil, err
 			}
 			return &response.RegisterResponse{
+				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
 				EmailVerified: user.EmailVerified,
@@ -93,15 +96,17 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 		existingUser, err := u.repo.GetUserByEmailOrPhone(u.db, req.Email, req.Phone)
 		if existingUser != nil && err == nil {
 			return &response.RegisterResponse{
-				Email:  req.Email,
-				Phone:  req.Phone,
-				Status: "exists",
+				UserType: existingUser.UserType,
+				Email:    existingUser.Email,
+				Phone:    existingUser.Phone,
+				Status:   "exists",
 			}, errors.New("user with this email or phone number already exists")
 		}
 		// User yoxdur → yeni user yarat
 		newUser := &domain.User{
-			Email: req.Email,
-			Phone: req.Phone,
+			UserType: req.UserType,
+			Email:    req.Email,
+			Phone:    req.Phone,
 		}
 		if _, err := u.repo.Create(u.db, newUser); err != nil {
 			return nil, err
@@ -117,8 +122,9 @@ func (u *UserService) RegisterRequestOTP(req *request.OTPRequest) (*response.Reg
 		}
 
 		return &response.RegisterResponse{
-			Email:         req.Email,
-			Phone:         req.Phone,
+			UserType:      newUser.UserType,
+			Email:         newUser.Email,
+			Phone:         newUser.Phone,
 			Status:        "created",
 			EmailVerified: false,
 			PhoneVerified: false,

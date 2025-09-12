@@ -25,6 +25,7 @@ type User struct {
 	PhoneOtpExpireDate *time.Time `gorm:"default:NULL" json:"phone_otp_expire_date"`
 	PINHash            string     `gorm:"size:100;default:null" json:"pin_hash"`
 	Is2FAVerified      bool       `gorm:"default:false"`
+	UserType           string     `gorm:"size:100;default:null" json:"user_type"`
 	Google2FASecret    string
 	Passkeys           []Passkey `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"user_passkeys"`
 }

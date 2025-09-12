@@ -34,7 +34,7 @@ func NewAuthController(service services.IUserService) IAuthController {
 
 func (ac *AuthController) RegisterRequestOTP(c *fiber.Ctx) error {
 
-	var req request.OTPRequest
+	var req request.StartRegistration
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),

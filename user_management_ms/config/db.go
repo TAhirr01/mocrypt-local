@@ -68,8 +68,8 @@ func Migrate(url string) {
 	log.Info("migration applying...")
 	// NOTE: Apply migration operations
 	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		//log.Panic("failed to run migration: ", err)
-		//panic(err.Error())
+		log.Panic("failed to run migration: ", err)
+		panic(err.Error())
 	}
 
 	log.Info("database migrated successfully")

@@ -157,7 +157,9 @@ func (ac *GoogleAuthController) GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error 
 	}
 	tokens, err := ac.googleService.VerifyGoogleLoginOtp(&request.VerifyEmailOTPRequest{Email: email, EmailOTP: req.EmailOTP})
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 	return c.Status(fiber.StatusOK).JSON(tokens)
 }
