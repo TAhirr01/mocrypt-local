@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"log"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -93,7 +92,7 @@ func (ac *GoogleAuthController) GoogleCallback(c *fiber.Ctx) error {
 		})
 	}
 	if isNew == false && user.GoogleID != "" {
-		if _, err := ac.googleService.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
+		if _, err := ac.googleService.SendEmailLoginOtp(user); err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": err.Error(),
 			})
@@ -112,14 +111,12 @@ func (ac *GoogleAuthController) GoogleCallback(c *fiber.Ctx) error {
 
 func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
 	email := c.Query("email")
-	log.Println(email)
 	var req request.PhoneRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	log.Println(req.Phone)
 	res, err := ac.googleService.StartGoogleRegistration(&request.StartGoogleRegistration{Email: email, Phone: req.Phone})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{

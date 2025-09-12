@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"time"
 	"user_management_ms/config"
@@ -29,7 +28,7 @@ type IGoogleAuthService interface {
 	StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error)
 	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error)
 	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error)
-	SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error)
+	SendEmailLoginOtp(user *domain.User) (*response.OTPResponseEmail, error)
 	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error)
 	CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error)
 	SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error)
@@ -85,7 +84,6 @@ func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.Googl
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Claims: %#v\n", payload.Claims)
 	user := &response.GoogleUser{
 		ID:            payload.Claims["sub"].(string),
 		Email:         payload.Claims["email"].(string),
@@ -261,11 +259,7 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 	}, nil
 }
 
-func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error) {
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
-	if err != nil {
-		return nil, err
-	}
+func (g *GoogleAuthService) SendEmailLoginOtp(user *domain.User) (*response.OTPResponseEmail, error) {
 	otp := util.GenerateOTP()
 	expire := time.Now().Add(5 * time.Minute)
 	user.EmailOtp = otp
@@ -273,11 +267,11 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 	if _, err := g.googleRepo.Update(g.db, user); err != nil {
 		return nil, err
 	}
-	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: otp}); err != nil {
+	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: user.Email, EmailOTP: otp}); err != nil {
 		return nil, err
 	}
 	return &response.OTPResponseEmail{
-		Email:   req.Email,
+		Email:   user.Email,
 		Status:  "otp_sent",
 		Message: "Email OTP sent",
 	}, nil
