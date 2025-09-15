@@ -66,8 +66,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/register/start/:userId", s.WebAuthnController.RegisterStart)
 	authGroup.Post("/register/finish/:userId", s.WebAuthnController.RegisterFinish)
 	authGroup.Post("/login/start/:userId", s.WebAuthnController.LoginStart)
-
-	//authGroup.Post("/login/finish/:userId", s.WebAuthnController.LoginFinish)
+	authGroup.Post("/login/finish/:userId", s.WebAuthnController.LoginFinish)
 	return app
 }
 

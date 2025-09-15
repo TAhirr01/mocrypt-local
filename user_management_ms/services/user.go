@@ -25,7 +25,7 @@ type IUserService interface {
 	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error)
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
-	Setup2FA(email, phone string) ([]byte, error)
+	Setup2FA(email, phone string) (*response.TwoFASetupResponse, error)
 	Verify2FA(email, phone, code string) (bool, error)
 	SetPIN(email, phone, pin string) error
 	VerifyPIN(email, phone, pin string) (bool, error)
@@ -342,7 +342,7 @@ func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Toke
 	}, nil
 }
 
-func (u *UserService) Setup2FA(email, phone string) ([]byte, error) {
+func (u *UserService) Setup2FA(email, phone string) (*response.TwoFASetupResponse, error) {
 	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
 	if err != nil {
 		return nil, err
@@ -369,7 +369,10 @@ func (u *UserService) Setup2FA(email, phone string) ([]byte, error) {
 		return nil, err
 	}
 
-	return png, nil
+	return &response.TwoFASetupResponse{
+		Secret: key.Secret(),
+		QRCode: png,
+	}, nil
 }
 
 func (u *UserService) Verify2FA(email, phone, code string) (bool, error) {

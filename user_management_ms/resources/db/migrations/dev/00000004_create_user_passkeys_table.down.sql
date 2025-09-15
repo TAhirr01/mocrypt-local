@@ -1,1 +1,1 @@
-DROP TABLE user_passkeys;
+DROP TABLE user_passkeys

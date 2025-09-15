@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/base64"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -179,13 +180,15 @@ func (ac *AuthController) Setup2FA(c *fiber.Ctx) error {
 	email := c.Query("email")
 	phone := c.Query("phone")
 
-	png, err := ac.userService.Setup2FA(email, phone)
+	resp, err := ac.userService.Setup2FA(email, phone)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	c.Set("Content-Type", "image/png")
-	return c.Send(png)
+	return c.JSON(fiber.Map{
+		"secret":  resp.Secret,
+		"qr_code": base64.StdEncoding.EncodeToString(resp.QRCode),
+	})
 }
 
 func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {

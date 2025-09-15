@@ -1,3 +1,32 @@
-# Config fayllari
-.env
-/resources/application.yaml
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build directories
+bin/
+build/
+
+# Go modules
+vendor/
+
+# Test binary files
+*.test
+
+# GoLand / IntelliJ IDEA project files
+.idea/
+*.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# Coverage reports
+coverage.out

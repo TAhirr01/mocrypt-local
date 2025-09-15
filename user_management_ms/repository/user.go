@@ -29,6 +29,7 @@ type IUserRepository interface {
 	UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error
 	UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error
 	GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error)
+	UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error
 }
 type UserRepository struct {
 }
@@ -158,6 +159,8 @@ func (u *UserRepository) SavePasskey(db *gorm.DB, authBytes []byte, userID uint,
 		SignCount:       cred.Authenticator.SignCount,
 		AAGUID:          cred.Authenticator.AAGUID,
 		AttestationType: cred.AttestationType,
+		BackupState:     cred.Flags.BackupState,
+		BackupEligible:  cred.Flags.BackupEligible,
 		Authenticator:   authBytes,
 	}
 
@@ -186,4 +189,13 @@ func (u *UserRepository) GetCompletedUsersByEmailAndPhone(db *gorm.DB, email str
 		return nil, errors.New("user is not completed")
 	}
 	return &user, nil
+}
+
+func (u *UserRepository) UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error {
+	return db.Model(&domain.Passkey{}).
+		Where("credential_id = ?", credID).
+		Updates(map[string]interface{}{
+			"authenticator": auth,
+			"sign_count":    signCount,
+		}).Error
 }
