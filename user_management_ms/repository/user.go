@@ -30,6 +30,7 @@ type IUserRepository interface {
 	UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error
 	GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error)
 	UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error
+	FindUserByCredentialID(db *gorm.DB, credID []byte) (*domain.User, error)
 }
 type UserRepository struct {
 }
@@ -198,4 +199,19 @@ func (u *UserRepository) UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, aut
 			"authenticator": auth,
 			"sign_count":    signCount,
 		}).Error
+}
+func (u *UserRepository) FindUserByCredentialID(db *gorm.DB, credentialID []byte) (*domain.User, error) {
+	var user domain.User
+
+	// Join with passkeys table to find user by credential ID
+	err := db.Preload("Passkeys").
+		Joins("JOIN user_passkeys ON users.id = user_passkeys.user_id").
+		Where("user_passkeys.credential_id = ?", credentialID).
+		First(&user).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }
