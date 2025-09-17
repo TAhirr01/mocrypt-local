@@ -3,7 +3,6 @@ package controller
 import (
 	"log"
 	"net/http"
-	"strconv"
 	"user_management_ms/dtos/request"
 
 	"user_management_ms/services"
@@ -29,12 +28,9 @@ func NewPasskeyController(service services.IPasskeyService) IPasskeyController {
 
 func (pc *PasskeyController) RegisterStart(c *fiber.Ctx) error {
 	log.Println("Start register start ")
-	userID, err := strconv.Atoi(c.Params("userId"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid user id"})
-	}
 
-	options, err := pc.service.RegisterStart(&request.StartPasskeyRegistrationRequest{UserId: uint(userID)})
+	userId := c.Locals("userId")
+	options, err := pc.service.RegisterStart(&request.StartPasskeyRegistrationRequest{UserId: uint(userId.(float64))})
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -45,11 +41,7 @@ func (pc *PasskeyController) RegisterStart(c *fiber.Ctx) error {
 func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 	// 1. Parse user ID
 	log.Println("Start register finish")
-	userID, err := strconv.Atoi(c.Params("userId"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid user id"})
-	}
-
+	userId := c.Locals("userId")
 	// 3. Convert Fiber (fasthttp) request to *http.Request
 	req := new(http.Request)
 	if err := fasthttpadaptor.ConvertRequest(c.Context(), req, true); err != nil {
@@ -57,7 +49,7 @@ func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 	}
 
 	// 4. Call service to finish registration
-	if err := pc.service.RegisterFinish(uint(userID), req); err != nil {
+	if err := pc.service.RegisterFinish(uint(userId.(float64)), req); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	log.Println("Finish register finish")
@@ -66,35 +58,34 @@ func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 
 func (pc *PasskeyController) LoginStart(c *fiber.Ctx) error {
 	log.Println("start login start-controller")
-	userID, err := strconv.Atoi(c.Params("userId"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid user id"})
-	}
 
-	options, err := pc.service.LoginStart(uint(userID))
+	options, sessionId, err := pc.service.LoginStart()
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	log.Println("Finish login start-controller ")
-	return c.JSON(options)
+	return c.JSON(fiber.Map{
+		"sessionId": sessionId,
+		"options":   options,
+	})
 }
 
 func (pc *PasskeyController) LoginFinish(c *fiber.Ctx) error {
 	log.Println("start login finish-controller")
-	userID, err := strconv.Atoi(c.Params("userId"))
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "invalid user id"})
-	}
+	sessionId := c.Params("sessionId")
 	// Convert Fiber fasthttp request → *http.Request
 	req := new(http.Request)
 	if err := fasthttpadaptor.ConvertRequest(c.Context(), req, true); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to convert request"})
 	}
-
-	if err := pc.service.LoginFinish(uint(userID), req); err != nil {
+	user, err := pc.service.LoginFinish(sessionId, req)
+	if err != nil {
 		return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 	}
 	log.Println("Finish login finish-controller ")
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.JSON(fiber.Map{
+		"status": "ok",
+		"user":   user,
+	})
 }
