@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Passkey Test</title>
+</head>
+
+<body>
+<h1>Passkey Test</h1>
+
+<button onclick="registerPasskey()">Register Passkey</button>
+<button onclick="loginPasskey()">Login with Passkey</button>
+
+<pre id="output"></pre>
+
+<script>
+    const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTgxODE0MzEsImlzcyI6Ik1vY3J5cHQgU2VjdXJpdHkgSXNzdWVyIiwic3ViIjoyfQ.0Kn6t9b0TlcsiVuadsn_yXonWEsAv9gQBVyKUxFj8A8";
+    async function registerPasskey() {
+        // hardcode for test
+        const startResp = await fetch(`http://localhost:8089/authz/v1/auth/register/start`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+        });
+        const options = await startResp.json();
+
+        // Convert base64url → ArrayBuffer
+        console.log(options)
+        options.publicKey.challenge = decode(options.publicKey.challenge);
+        options.publicKey.user.id = decode(options.publicKey.user.id);
+
+        console.log("creds start")
+        console.log(options.publicKey)
+        const cred = await navigator.credentials.create({ publicKey: options.publicKey });
+        console.log("creds end")
+
+        console.log("finish")
+        const finishResp = await fetch(`http://localhost:8089/authz/v1/auth/register/finish`, {
+            method: "POST",
+            body: JSON.stringify(cred),
+            headers: {
+                "Content-Type": "application/json"
+                , "Authorization": `Bearer ${token}`
+            }
+        });
+
+        // document.getElementById("output").textContent = await finishResp.text();
+
+    }
+
+    // ---------------------- Helpers ----------------------
+    function bufferToBase64url(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let str = "";
+        for (let i = 0; i < bytes.length; i++) {
+            str += String.fromCharCode(bytes[i]);
+        }
+        return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+
+    function base64urlToBuffer(baseurl) {
+        const pad = baseurl.length % 4 === 0 ? "" : "=".repeat(4 - (baseurl.length % 4));
+        const base64 = baseurl.replace(/-/g, "+").replace(/_/g, "/") + pad;
+        const str = atob(base64);
+        const bytes = new Uint8Array(str.length);
+        for (let i = 0; i < str.length; i++) {
+            bytes[i] = str.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    // ---------------------- Login Passkey ----------------------
+    async function loginPasskey() {
+        const output = document.getElementById("output");
+        try {
+            output.textContent += "\n➡️ Starting login...";
+
+            // 1️⃣ Start login
+            const startResp = await fetch(`http://localhost:8089/authz/v1/auth/login/start`, {
+                method: "POST"
+            });
+            if (!startResp.ok) throw new Error("Failed to start login");
+            const startData = await startResp.json();
+
+            if (!startData.options || !startData.options.publicKey) {
+                throw new Error("Invalid login start response: missing options");
+            }
+
+            const options = startData.options.publicKey;
+            const sessionId = startData.sessionId;
+            output.textContent += `\nSession ID: ${sessionId}`;
+
+            // 2️⃣ Decode challenge & allowCredentials
+            options.challenge = base64urlToBuffer(options.challenge);
+
+            if (options.allowCredentials && options.allowCredentials.length > 0) {
+                options.allowCredentials = options.allowCredentials.map(c => ({
+                    ...c,
+                    id: base64urlToBuffer(c.id)
+                }));
+            }
+
+            console.log("PublicKey options for navigator.credentials.get():", options);
+
+            // 3️⃣ Get assertion
+            const assertion = await navigator.credentials.get({ publicKey: options });
+            if (!assertion) throw new Error("No credential returned from authenticator");
+            console.log("Assertion received:", assertion);
+
+            // 4️⃣ Convert assertion to JSON for backend
+            const assertionJSON = {
+                id: assertion.id,
+                rawId: bufferToBase64url(assertion.rawId),
+                type: assertion.type,
+                response: {
+                    clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+                    authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+                    signature: bufferToBase64url(assertion.response.signature),
+                    userHandle: assertion.response.userHandle
+                        ? bufferToBase64url(assertion.response.userHandle)
+                        : null
+                }
+            };
+
+            console.log("Assertion JSON to send to backend:", assertionJSON);
+
+            // 5️⃣ Finish login
+            const finishResp = await fetch(`http://localhost:8089/authz/v1/auth/login/finish/${sessionId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(assertionJSON)
+            });
+
+            if (!finishResp.ok) {
+                const errText = await finishResp.text();
+                throw new Error(`Login finish failed: ${finishResp.status} - ${errText}`);
+            }
+
+            const result = await finishResp.json();
+            output.textContent += "\n✅ Login successful! User: " + JSON.stringify(result);
+
+        } catch (err) {
+            output.textContent += `\n❌ Login error: ${err.message}`;
+            console.error(err);
+        }
+    }
+    function decode(base64url) {
+        const padding = "===".slice((base64url.length + 3) % 4);
+        const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
+        const raw = atob(base64);
+        const buffer = new ArrayBuffer(raw.length);
+        const view = new Uint8Array(buffer);
+        for (let i = 0; i < raw.length; i++) {
+            view[i] = raw.charCodeAt(i);
+        }
+        return buffer;
+    }
+    function credentialToJSON(credential) {
+        return {
+            id: credential.id,
+            rawId: encode(credential.rawId),
+            type: credential.type,
+            response: {
+                authenticatorData: encode(credential.response.authenticatorData),
+                clientDataJSON: encode(credential.response.clientDataJSON),
+                signature: encode(credential.response.signature),
+                userHandle: credential.response.userHandle ? encode(credential.response.userHandle) : null
+            }
+        };
+    }
+    function encode(buffer) {
+        return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+    }
+</script>
+</body>
+
+</html>
