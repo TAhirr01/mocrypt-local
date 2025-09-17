@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"log"
 	"net/http"
 	"user_management_ms/dtos/request"
 
@@ -27,21 +26,16 @@ func NewPasskeyController(service services.IPasskeyService) IPasskeyController {
 }
 
 func (pc *PasskeyController) RegisterStart(c *fiber.Ctx) error {
-	log.Println("Start register start ")
-
 	userId := c.Locals("userId")
 	options, err := pc.service.RegisterStart(&request.StartPasskeyRegistrationRequest{UserId: uint(userId.(float64))})
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	log.Println("Finish register start ")
-	log.Println(options)
 	return c.JSON(options)
 }
 
 func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 	// 1. Parse user ID
-	log.Println("Start register finish")
 	userId := c.Locals("userId")
 	// 3. Convert Fiber (fasthttp) request to *http.Request
 	req := new(http.Request)
@@ -53,19 +47,15 @@ func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 	if err := pc.service.RegisterFinish(uint(userId.(float64)), req); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	log.Println("Finish register finish")
 	return c.JSON(fiber.Map{"status": "ok"})
 }
 
 func (pc *PasskeyController) LoginStart(c *fiber.Ctx) error {
-	log.Println("start login start-controller")
-
 	options, sessionId, err := pc.service.LoginStart()
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	log.Println("Finish login start-controller ")
 	return c.JSON(fiber.Map{
 		"sessionId": sessionId,
 		"options":   options,
@@ -73,7 +63,6 @@ func (pc *PasskeyController) LoginStart(c *fiber.Ctx) error {
 }
 
 func (pc *PasskeyController) LoginFinish(c *fiber.Ctx) error {
-	log.Println("start login finish-controller")
 	sessionId := c.Params("sessionId")
 	// Convert Fiber fasthttp request → *http.Request
 	req := new(http.Request)
@@ -84,7 +73,6 @@ func (pc *PasskeyController) LoginFinish(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 	}
-	log.Println("Finish login finish-controller ")
 	return c.JSON(fiber.Map{
 		"status": "ok",
 		"user":   user,
