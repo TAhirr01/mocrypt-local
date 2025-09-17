@@ -1,9 +1,11 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"user_management_ms/domain"
@@ -101,7 +103,6 @@ func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, e
 	if err != nil {
 		return nil, "", err
 	}
-	sessionData.AllowedCredentialIDs = [][]byte{}
 	// Store session in Redis for later finish
 	if err := ps.redis.StoreSessionRedis(sessionID, sessionData); err != nil {
 		return nil, "", err
@@ -113,17 +114,18 @@ func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, e
 // LoginFinish validates the assertion response and updates signCount for the credential used
 // Fixed LoginFinish method
 func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*domain.User, error) {
-	log.Printf("=== LoginFinish Debug Start ===")
-
 	// Retrieve session data from Redis
 	sessionData, err := ps.redis.GetSessionRedis(sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session data: %w", err)
 	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read request body: %w", err)
+	}
 
-	log.Printf("Retrieved session data: %+v", sessionData)
-	log.Printf("Session challenge: %x", sessionData.Challenge)
-	log.Printf("Session UserID: %s", string(sessionData.UserID))
+	// Reset r.Body so it can be read again
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	// Parse the assertion response from the request
 	response, err := protocol.ParseCredentialRequestResponse(r)
@@ -141,58 +143,17 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*domai
 	// Find user by credential ID BEFORE calling FinishDiscoverableLogin
 	user, err := ps.userRepo.FindUserByCredentialID(ps.db, credentialID)
 	if err != nil {
-		log.Printf("FindUserByCredentialID error: %v", err)
-		return nil, fmt.Errorf("failed to find user by credential ID: %w", err)
+
+		return nil, errors.New("user has no passkeys register one first")
 	}
 
-	log.Printf("About to call FinishDiscoverableLogin...")
-	log.Println("User:", user)
+	sessionData.UserID = user.WebAuthnID()
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	credential, err := ps.wa.FinishLogin(user, *sessionData, r)
-
-	//The actual call that's failing
-	//credential, err := ps.wa.FinishDiscoverableLogin(
-	//	func(rawID, userHandle []byte) (webauthn.User, error) {
-	//		log.Printf("=== CALLBACK CALLED ===")
-	//		log.Printf("Callback rawID: %v (hex: %x)", rawID, rawID)
-	//		log.Printf("Callback userHandle: %v (string: %s)", userHandle, string(userHandle))
-	//		log.Printf("Expected credentialID: %v (hex: %x)", credentialID, credentialID)
-	//
-	//		// Check if rawID matches any of the user's credentials
-	//		var matchFound bool
-	//		for _, passkey := range user.Passkeys {
-	//			if bytes.Equal(rawID, passkey.CredentialID) {
-	//				log.Printf("Found matching credential in user's passkeys")
-	//				matchFound = true
-	//				break
-	//			}
-	//		}
-	//
-	//		if !matchFound {
-	//			log.Printf("No matching credential found in user's passkeys")
-	//			// Don't return error yet, let's see what WebAuthn expects
-	//		}
-	//
-	//		// Verify this is the same credential ID from the response
-	//		if !bytes.Equal(rawID, credentialID) {
-	//			log.Printf("WARNING: rawID from callback doesn't match credentialID from response")
-	//			log.Printf("This might be normal - WebAuthn might be checking different credentials")
-	//			// Don't return error here - let WebAuthn continue its process
-	//		}
-	//
-	//		log.Printf("Returning user from callback: %+v", user)
-	//		return user, nil
-	//	},
-	//	*sessionData,
-	//	r,
-	//)
-
 	if err != nil {
-		log.Printf("FinishDiscoverableLogin failed with error: %v", err)
-		log.Printf("Error type: %T", err)
-		return nil, fmt.Errorf("failed to finish discoverable login: %w", err)
+		return nil, fmt.Errorf("failed to finish login: %w", err)
 	}
 
-	log.Printf("FinishDiscoverableLogin successful!")
 	log.Printf("Returned credential: ID=%v, SignCount=%d", credential.ID, credential.Authenticator.SignCount)
 
 	// Update the credential's sign count
