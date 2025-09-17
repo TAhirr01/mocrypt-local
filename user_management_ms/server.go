@@ -3,6 +3,7 @@ package main
 import (
 	"user_management_ms/config"
 	"user_management_ms/controller"
+	"user_management_ms/middleware"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -63,10 +64,10 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/google/complete-registration", s.GoogleAuthController.CompleteGoogleRegistration)
 	authGroup.Post("/google/login/verify-otp", s.GoogleAuthController.GoogleVerifyLoginRequestOtp)
 
-	authGroup.Post("/register/start/:userId", s.WebAuthnController.RegisterStart)
-	authGroup.Post("/register/finish/:userId", s.WebAuthnController.RegisterFinish)
-	authGroup.Post("/login/start/:userId", s.WebAuthnController.LoginStart)
-	authGroup.Post("/login/finish/:userId", s.WebAuthnController.LoginFinish)
+	authGroup.Post("/register/start", middleware.AuthMiddleware(), s.WebAuthnController.RegisterStart)
+	authGroup.Post("/register/finish", middleware.AuthMiddleware(), s.WebAuthnController.RegisterFinish)
+	authGroup.Post("/login/start", s.WebAuthnController.LoginStart)
+	authGroup.Post("/login/finish/:sessionId", s.WebAuthnController.LoginFinish)
 	return app
 }
 
