@@ -6,7 +6,7 @@ func InitWebAuthn() *webauthn.WebAuthn {
 	wa, err := webauthn.New(&webauthn.Config{
 		RPDisplayName: Conf.Application.WebAuthn.RpDisplayName,
 		RPID:          Conf.Application.WebAuthn.RpID,
-		RPOrigins:     []string{Conf.Application.WebAuthn.RpOrigin, "http://127.0.0.1:5500"},
+		RPOrigins:     []string{Conf.Application.WebAuthn.RpOrigin},
 	})
 
 	if err != nil {
