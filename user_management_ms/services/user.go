@@ -261,12 +261,21 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 		return nil, errors.New("user not found")
 	}
 
-	if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
-		return nil, errors.New("email OTP invalid or expired")
-	}
+	if user.EmailOtpExpireDate != nil && user.PhoneOtpExpireDate != nil {
+		if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
+			return nil, errors.New("email OTP invalid or expired")
+		}
 
-	if time.Now().After(*user.PhoneOtpExpireDate) || user.PhoneOtp != otRequest.PhoneOTP {
-		return nil, errors.New("phone OTP invalid or expired")
+		if time.Now().After(*user.PhoneOtpExpireDate) || user.PhoneOtp != otRequest.PhoneOTP {
+			return nil, errors.New("phone OTP invalid or expired")
+		}
+	} else if user.EmailOtpExpireDate == nil && user.PhoneOtpExpireDate == nil {
+		if user.EmailVerified && user.PhoneVerified {
+			return nil, errors.New("user already verified")
+		} else {
+			return nil, errors.New("user needs to be verified")
+		}
+
 	}
 
 	if err := u.repo.DeteUserOtpAndExpireDate(u.db, user); err != nil {
