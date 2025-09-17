@@ -35,6 +35,7 @@ func (pc *PasskeyController) RegisterStart(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 	log.Println("Finish register start ")
+	log.Println(options)
 	return c.JSON(options)
 }
 
