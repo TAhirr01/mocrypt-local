@@ -42,27 +42,6 @@ func (u User) WebAuthnDisplayName() string {
 	return u.Email
 }
 
-//	func (u User) WebAuthnCredentials() []webauthn.Credential {
-//		var creds []webauthn.Credential
-//		for _, p := range u.Passkeys {
-//			var auth webauthn.Authenticator
-//			if len(p.Authenticator) > 0 {
-//				_ = json.Unmarshal(p.Authenticator, &auth) // ignore error for now
-//			}
-//
-//			creds = append(creds, webauthn.Credential{
-//				ID:              p.CredentialID,
-//				PublicKey:       p.PublicKey,
-//				Authenticator:   auth,
-//				AttestationType: p.AttestationType,
-//				Flags: webauthn.CredentialFlags{
-//					BackupEligible: p.BackupEligible, // <- IMPORTANT: this is what FinishLogin checks
-//					BackupState:    p.BackupState,    // <- default
-//				},
-//			})
-//		}
-//		return creds
-//	}
 func (u User) WebAuthnCredentials() []webauthn.Credential {
 	var creds []webauthn.Credential
 	for _, p := range u.Passkeys {
