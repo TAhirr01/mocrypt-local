@@ -56,11 +56,11 @@ func (s *RedisService) GetSessionRedis(sessionId string) (*webauthn.SessionData,
 		return nil, err
 	}
 
-	var sessionData *webauthn.SessionData
+	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(val), &sessionData); err != nil {
 		return nil, err
 	}
-	return sessionData, nil
+	return &sessionData, nil
 }
 
 // delete session
@@ -77,12 +77,11 @@ func (s *RedisService) GetRegistrationSessionRedis(userId uint) (*webauthn.Sessi
 	if err != nil {
 		return nil, err
 	}
-
-	var sessionData *webauthn.SessionData
+	var sessionData webauthn.SessionData
 	if err := json.Unmarshal([]byte(val), &sessionData); err != nil {
 		return nil, err
 	}
-	return sessionData, nil
+	return &sessionData, nil
 }
 func (s *RedisService) DeleteRegistrationSessionRedis(userId uint) error {
 	return s.rdb.Del(ctx, fmt.Sprintf("webauthn:%d", userId)).Err()
