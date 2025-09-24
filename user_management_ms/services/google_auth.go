@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"time"
 	"user_management_ms/config"
@@ -85,7 +84,6 @@ func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.Googl
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Claims: %#v\n", payload.Claims)
 	user := &response.GoogleUser{
 		ID:            payload.Claims["sub"].(string),
 		Email:         payload.Claims["email"].(string),
@@ -125,13 +123,13 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 			}, nil
 		}
 		// Case 2: If user has a phone but input phone is not his
-		// If user has a phone and it's the same as requested phone
+		// If user has a phone, and it's the same as requested phone
 		if user.Phone != "" && user.Phone == req.Phone {
 			// If phone exists but not verified -> resend phone OTP
 
 		}
 		// Case 2: User don't have a phone yet attach a phone to user
-		// If user exists but they have no phone yet (we want to attach req.Phone)
+		// If user exists, but they have no phone yet (we want to attach req.Phone)
 		if user.Phone == "" {
 			// check whether another user already uses requested phone
 			isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
@@ -168,7 +166,7 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 		}
 
 		// Case 3: Users phone is different that what user requested
-		// If user exists but their phone is different than requested -> phone_mismatch
+		// If user exists but their phone is different from requested -> phone_mismatch
 		if user.Phone != "" && user.Phone != req.Phone {
 			log.Println("Case: User exists but requested phone is not user's")
 			return &response.GoogleResponse{
@@ -289,7 +287,7 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
 	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
 	if user != nil && (user.Password == "" || user.BirthDate == nil) {
-		return nil, errors.New("user has't completed registration")
+		return nil, errors.New("user hasn't completed registration")
 	}
 	if err != nil {
 		return nil, err
@@ -312,7 +310,7 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 	}, nil
 }
 
-// return:User,new user created,error
+// CreteNewGoogleUser return:User,new user created,error
 func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error) {
 	// Check if a user already exists with this email
 	user, err := g.googleRepo.FindUserByEmail(g.db, email)
