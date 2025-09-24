@@ -15,19 +15,14 @@ type IUserRepository interface {
 	Create(db *gorm.DB, entity *domain.User) (*domain.User, error)
 	Update(db *gorm.DB, entity *domain.User) error
 	Delete(db *gorm.DB, id uint) error
-	IsUserWithEmailAndPhoneNumberExist(db *gorm.DB, email string, phone string) (bool, error)
 	GetUserWithEmailAndPhoneNumber(db *gorm.DB, email string, phone string) (*domain.User, error)
 	GetUserByEmail(db *gorm.DB, email string) (*domain.User, error)
-	UpdateUserVerification(db *gorm.DB, email string, verify bool) error
 	UpdateUserPasswordAndBirthDate(db *gorm.DB, email, hasPassword string, birthDate *time.Time) (*domain.User, error)
 	GetUserByEmailOrPhone(db *gorm.DB, email, phone string) (*domain.User, error)
 	SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) error
 	DeteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error
 	SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *domain.User, emailOtp, phoneOtp string) error
-	GetUserWithPasskeys(db *gorm.DB, userId uint) (*domain.User, error)
 	SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error
-	UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error
-	UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error
 	GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error)
 	UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error
 	FindUserByCredentialID(db *gorm.DB, credID []byte) (*domain.User, error)
@@ -57,15 +52,6 @@ func (u *UserRepository) Update(db *gorm.DB, entity *domain.User) error {
 
 func (u *UserRepository) Delete(db *gorm.DB, id uint) error {
 	return db.Delete(&domain.User{}, id).Error
-}
-
-func (u *UserRepository) IsUserWithEmailAndPhoneNumberExist(db *gorm.DB, email string, phone string) (bool, error) {
-	var user domain.User
-	err := db.Where("email = ? or phone= ?", email, phone).First(&user).Error
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (u *UserRepository) GetUserWithEmailAndPhoneNumber(db *gorm.DB, email string, phone string) (*domain.User, error) {
@@ -120,12 +106,6 @@ func (u *UserRepository) SaveUserOTPs(db *gorm.DB, email string, phone string, d
 		}).Error
 }
 
-func (u *UserRepository) UpdateUserVerification(db *gorm.DB, email string, verified bool) error {
-	return db.Model(&domain.User{}).
-		Where("email = ?", email).
-		Update("email_verified", verified).Error
-}
-
 func (u *UserRepository) DeteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error {
 	user.PhoneOtp = ""
 	user.EmailOtp = ""
@@ -141,15 +121,6 @@ func (u *UserRepository) SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *d
 	user.EmailOtpExpireDate = &t
 	user.PhoneOtpExpireDate = &t
 	return db.Save(user).Error
-}
-
-func (u *UserRepository) GetUserWithPasskeys(db *gorm.DB, userId uint) (*domain.User, error) {
-	var user domain.User
-	err := db.Preload("Passkeys").First(&user, userId).Error
-	if err != nil {
-		return nil, err
-	}
-	return &user, nil
 }
 
 func (u *UserRepository) SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error {
@@ -169,18 +140,6 @@ func (u *UserRepository) SavePasskey(db *gorm.DB, authBytes []byte, userID uint,
 		return err
 	}
 	return nil
-}
-
-func (u *UserRepository) UpdateSignCount(db *gorm.DB, userID uint, signCount uint32) error {
-	return db.Model(&domain.Passkey{}).
-		Where("user_id = ?", userID).
-		Update("sign_count", signCount).Error
-}
-
-func (u *UserRepository) UpdateSignCountByCredentialID(db *gorm.DB, credentialID []byte, signCount uint32) error {
-	return db.Model(&domain.Passkey{}).
-		Where("credential_id = ?", credentialID).
-		Update("sign_count", signCount).Error
 }
 
 func (u *UserRepository) GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error) {
