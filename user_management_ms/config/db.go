@@ -18,14 +18,20 @@ import (
 func OpenDatabaseConnection(url string) *gorm.DB {
 	//Migrate()
 	log.Info("Opening database connection")
+
+	gormLogger := gorm_logger.New(
+		def_log.New(os.Stdout, "\r\n", def_log.LstdFlags),
+		gorm_logger.Config{
+			LogLevel:                  gorm_logger.Info,
+			Colorful:                  true,
+			SlowThreshold:             time.Second,
+			IgnoreRecordNotFoundError: true,
+		},
+	)
+
 	// NOTE: Open database connection
 	db, err := gorm.Open(sqlserver.Open(url), &gorm.Config{
-		Logger: gorm_logger.New(
-			def_log.New(os.Stdout, "\r\n", def_log.LstdFlags),
-			gorm_logger.Config{
-				LogLevel: gorm_logger.Info,
-			},
-		),
+		Logger: gormLogger,
 	})
 	if err != nil {
 		log.Panic("Failed to open database connection")
