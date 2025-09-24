@@ -11,6 +11,7 @@ import (
 	"user_management_ms/repository"
 	"user_management_ms/util"
 
+	"github.com/hashicorp/go-uuid"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
@@ -29,7 +30,9 @@ type IUserService interface {
 	Verify2FA(email, phone, code string) (bool, error)
 	SetPIN(email, phone, pin string) error
 	VerifyPIN(email, phone, pin string) (bool, error)
-	//ShouldForceFullAuth(req *request.CheckLogin, limit time.Duration) bool
+	RequestLoginQr() ([]byte, error)
+	ApproveLoginQr(userId uint, sessionId string) error
+	CheckLoginQr(sessionId string) (*response.QrLoginResponse, error)
 }
 
 type UserService struct {
@@ -432,13 +435,62 @@ func (u *UserService) VerifyPIN(email, phone, pin string) (bool, error) {
 	return true, nil
 }
 
-//func (u *UserService) HasUserCompletedOtpVerification(email string) (bool, error) {
-//	user, _ := u.repo.GetUserByEmail(u.db, email)
-//	if user == nil {
-//		return false, errors.New("user not found")
-//	}
-//	if !user.OTPVerified {
-//		return false, nil
-//	}
-//	return true, nil
-//}
+func (u *UserService) RequestLoginQr() ([]byte, error) {
+	sessionId, _ := uuid.GenerateUUID()
+	err := u.redis.StoreLoginSessionRedis(sessionId)
+	if err != nil {
+		return nil, err
+	}
+	png, err := qrcode.Encode(sessionId, qrcode.Medium, 256)
+	if err != nil {
+		return nil, err
+	}
+
+	return png, nil
+}
+
+func (u *UserService) ApproveLoginQr(userId uint, sessionId string) error {
+	session, err := u.redis.GetLoginSessionRedis(sessionId)
+	if err != nil {
+		return errors.New("session not found or redis problem")
+	}
+	session.UserId = userId
+	session.Status = "APPROVED"
+
+	if err := u.redis.UpdateLoginSessionRedis(sessionId, session); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (u *UserService) CheckLoginQr(sessionId string) (*response.QrLoginResponse, error) {
+	session, err := u.redis.GetLoginSessionRedis(sessionId)
+	if err != nil {
+		return &response.QrLoginResponse{Status: response.StatusExpired}, nil
+	}
+
+	switch session.Status {
+	case "PENDING":
+		return &response.QrLoginResponse{Status: response.StatusPending}, nil
+	case "APPROVED":
+		user, err := u.repo.GetByID(u.db, session.UserId)
+		if err != nil {
+			return nil, err
+		}
+		tokens, err := u.jwt.GenerateTokens(user)
+		if err != nil {
+			return nil, err
+		}
+
+		// Once consumed, delete to avoid reuse
+		_ = u.redis.DeleteLoginSessionRedis(sessionId)
+
+		return &response.QrLoginResponse{
+			Status: response.StatusApproved,
+			Tokens: tokens,
+		}, nil
+
+	default:
+		return &response.QrLoginResponse{Status: response.StatusExpired}, nil
+	}
+}
