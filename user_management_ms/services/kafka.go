@@ -23,12 +23,11 @@ func SendVerifyPhoneNumberEventToKafka(verifyPhoneEvent *request.VerifyPhoneEven
 		Topic: "VerifyPhoneEvent",
 		Value: sarama.StringEncoder(phoneData),
 	}
-	partition, offset, err := producer.SendMessage(phoneMsg)
-	if err != nil {
+
+	if _, _, err := producer.SendMessage(phoneMsg); err != nil {
 		log.Println("Failed to send phone:", err)
 		return err
 	}
-	log.Printf("Successfully sent phone to partition %d at offset %d\n", partition, offset)
 	return nil
 }
 
@@ -49,11 +48,10 @@ func SendVerifyEmailEventToKafka(verifyEmailEvent *request.VerifyEmailEvent) err
 		Topic: "VerifyEmailEvent",
 		Value: sarama.StringEncoder(emailData),
 	}
-	partition, offset, err := producer.SendMessage(emailMsg)
-	if err != nil {
+
+	if _, _, err := producer.SendMessage(emailMsg); err != nil {
 		log.Println("Failed to send email:", err)
 	}
-	log.Printf("Successfully sent email to partition %d at offset %d\n", partition, offset)
 	return nil
 }
 
