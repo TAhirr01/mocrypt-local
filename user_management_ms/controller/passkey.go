@@ -47,7 +47,7 @@ func (pc *PasskeyController) RegisterFinish(c *fiber.Ctx) error {
 	if err := pc.service.RegisterFinish(uint(userId.(float64)), req); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{"status": "ok"})
+	return c.Status(201).JSON(fiber.Map{})
 }
 
 func (pc *PasskeyController) LoginStart(c *fiber.Ctx) error {
@@ -73,8 +73,7 @@ func (pc *PasskeyController) LoginFinish(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 	}
-	return c.JSON(fiber.Map{
-		"status": "ok",
-		"user":   user,
+	return c.Status(200).JSON(fiber.Map{
+		"user": user,
 	})
 }
