@@ -23,6 +23,16 @@ type IRedisService interface {
 	StoreRegistrationSessionRedis(userID uint, sessionData *webauthn.SessionData) error
 	GetRegistrationSessionRedis(userID uint) (*webauthn.SessionData, error)
 	DeleteRegistrationSessionRedis(userID uint) error
+	StoreLoginSessionRedis(sessionId string) error
+	GetLoginSessionRedis(sessionId string) (*RedisSession, error)
+	DeleteLoginSessionRedis(sessionId string) error
+	UpdateLoginSessionRedis(sessionId string, session *RedisSession) error
+}
+
+type RedisSession struct {
+	SessionId string `json:"sessionId"`
+	Status    string `json:"status"`
+	UserId    uint   `json:"userId"`
 }
 type RedisService struct {
 	rdb *redis.Client
@@ -85,4 +95,35 @@ func (s *RedisService) GetRegistrationSessionRedis(userId uint) (*webauthn.Sessi
 }
 func (s *RedisService) DeleteRegistrationSessionRedis(userId uint) error {
 	return s.rdb.Del(ctx, fmt.Sprintf("webauthn:%d", userId)).Err()
+}
+
+func (s *RedisService) StoreLoginSessionRedis(sessionId string) error {
+	redisSession := &RedisSession{
+		Status: "PENDING",
+		UserId: 0,
+	}
+
+	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), redisSession, 1*time.Minute).Err()
+}
+
+func (s *RedisService) GetLoginSessionRedis(sessionId string) (*RedisSession, error) {
+	val, err := s.rdb.Get(ctx, fmt.Sprintf("qrlogin:%s", sessionId)).Result()
+	if err != nil {
+		return nil, err
+	}
+	var redisSession RedisSession
+
+	if err := json.Unmarshal([]byte(val), &redisSession); err != nil {
+		return nil, err
+	}
+	return &redisSession, err
+}
+
+func (s *RedisService) DeleteLoginSessionRedis(sessionId string) error {
+	return s.rdb.Del(ctx, fmt.Sprintf("qrlogin:%s", sessionId)).Err()
+}
+
+func (s *RedisService) UpdateLoginSessionRedis(sessionId string, session *RedisSession) error {
+	s.rdb.Del(ctx, fmt.Sprintf("qrlogin:%s", sessionId))
+	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), session, 1*time.Minute).Err()
 }
