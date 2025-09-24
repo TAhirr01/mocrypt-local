@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/base64"
+	"strconv"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -21,12 +22,48 @@ type IAuthController interface {
 	Verify2FA(c *fiber.Ctx) error
 	SetPIN(c *fiber.Ctx) error
 	VerifyPIN(c *fiber.Ctx) error
+	QrLoginRequest(c *fiber.Ctx) error
+	ApproveLoginRequest(c *fiber.Ctx) error
+	CheckLoginRequest(c *fiber.Ctx) error
 }
 
 var validate = validator.New()
 
 type AuthController struct {
 	userService services.IUserService
+}
+
+func (ac *AuthController) CheckLoginRequest(c *fiber.Ctx) error {
+	sessionId := c.Params("sessionId")
+	token, err := ac.userService.CheckLoginQr(sessionId)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(token)
+}
+
+func (ac *AuthController) ApproveLoginRequest(c *fiber.Ctx) error {
+	strId := c.Params("userId")
+	userId, _ := strconv.Atoi(strId)
+	sessionId := c.Params("sessionId")
+	if err := ac.userService.ApproveLoginQr(uint(userId), sessionId); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(userId)
+}
+
+func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
+	png, err := ac.userService.RequestLoginQr()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(png)
 }
 
 func NewAuthController(service services.IUserService) IAuthController {
