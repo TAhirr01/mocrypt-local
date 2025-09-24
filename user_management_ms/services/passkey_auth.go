@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"user_management_ms/domain"
 	"user_management_ms/dtos/request"
+	"user_management_ms/dtos/response"
 	"user_management_ms/repository"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -22,18 +21,19 @@ type IPasskeyService interface {
 	RegisterStart(req *request.StartPasskeyRegistrationRequest) (*protocol.CredentialCreation, error)
 	RegisterFinish(userID uint, r *http.Request) error
 	LoginStart() (*protocol.CredentialAssertion, string, error)
-	LoginFinish(sessionID string, r *http.Request) (*domain.User, error)
+	LoginFinish(sessionID string, r *http.Request) (*response.Tokens, error)
 }
 
 type PasskeyService struct {
 	db       *gorm.DB
 	userRepo repository.IUserRepository
 	wa       *webauthn.WebAuthn
+	jwt      IJWTService
 	redis    IRedisService
 }
 
-func NewPasskeyService(wa *webauthn.WebAuthn, db *gorm.DB, userRepo repository.IUserRepository, redis IRedisService) IPasskeyService {
-	return &PasskeyService{wa: wa, db: db, userRepo: userRepo, redis: redis}
+func NewPasskeyService(wa *webauthn.WebAuthn, db *gorm.DB, userRepo repository.IUserRepository, redis IRedisService, jwt IJWTService) IPasskeyService {
+	return &PasskeyService{wa: wa, db: db, userRepo: userRepo, redis: redis, jwt: jwt}
 }
 
 // RegisterStart start passkey registration stores temporary session inside redis
@@ -99,7 +99,6 @@ func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, e
 	sessionID, _ := uuid.GenerateUUID() // implement a UUID generator
 	assertion, sessionData, err := ps.wa.BeginDiscoverableLogin()
 
-	log.Println("SessionData:", sessionData)
 	if err != nil {
 		return nil, "", err
 	}
@@ -113,31 +112,30 @@ func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, e
 
 // LoginFinish validates the assertion response and updates signCount for the credential used
 // Fixed LoginFinish method
-func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*domain.User, error) {
+func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*response.Tokens, error) {
 	// Retrieve session data from Redis
 	sessionData, err := ps.redis.GetSessionRedis(sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get session data: %w", err)
+		return nil, errors.New("failed to get session data")
 	}
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body: %w", err)
+		return nil, errors.New("failed to read request body")
 	}
 
 	// Reset r.Body so it can be read again
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	// Parse the assertion response from the request
-	response, err := protocol.ParseCredentialRequestResponse(r)
+	resp, err := protocol.ParseCredentialRequestResponse(r)
 	if err != nil {
-		log.Printf("ParseCredentialRequestResponse error: %v", err)
-		return nil, fmt.Errorf("failed to parse credential response: %w", err)
+		return nil, errors.New("failed to parse credential response")
 	}
 
 	// Extract the credential ID from the response
-	credentialID := response.RawID
+	credentialID := resp.RawID
 	if len(credentialID) == 0 {
-		return nil, fmt.Errorf("missing credential ID in response")
+		return nil, errors.New("missing credential ID in response")
 	}
 
 	// Find user by credential ID BEFORE calling FinishDiscoverableLogin
@@ -151,10 +149,8 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*domai
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	credential, err := ps.wa.FinishLogin(user, *sessionData, r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to finish login: %w", err)
+		return nil, errors.New("failed to finish login")
 	}
-
-	log.Printf("Returned credential: ID=%v, SignCount=%d", credential.ID, credential.Authenticator.SignCount)
 
 	// Update the credential's sign count
 	authBytes, _ := json.Marshal(credential.Authenticator)
@@ -167,6 +163,13 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*domai
 		log.Printf("Warning: failed to delete session: %v", err)
 	}
 
-	log.Printf("=== LoginFinish Debug End - SUCCESS ===")
-	return user, nil
+	tokens, err := ps.jwt.GenerateTokens(user)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response.Tokens{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+	}, nil
 }
