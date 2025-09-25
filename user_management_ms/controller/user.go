@@ -2,7 +2,7 @@ package controller
 
 import (
 	"encoding/base64"
-	"strconv"
+	"log"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -35,36 +35,51 @@ type AuthController struct {
 
 func (ac *AuthController) CheckLoginRequest(c *fiber.Ctx) error {
 	sessionId := c.Params("sessionId")
-	token, err := ac.userService.CheckLoginQr(sessionId)
+	response, err := ac.userService.CheckLoginQr(sessionId)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	return c.Status(fiber.StatusOK).JSON(token)
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 func (ac *AuthController) ApproveLoginRequest(c *fiber.Ctx) error {
-	strId := c.Params("userId")
-	userId, _ := strconv.Atoi(strId)
-	sessionId := c.Params("sessionId")
-	if err := ac.userService.ApproveLoginQr(uint(userId), sessionId); err != nil {
+	userId := c.Locals("userId")
+
+	var req struct {
+		SessionId string `json:"sessionId"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
+	}
+
+	if err := ac.userService.ApproveLoginQr(uint(userId.(float64)), req.SessionId); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	return c.Status(fiber.StatusOK).JSON(userId)
+
+	log.Println(userId)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "QR login approved",
+	})
 }
 
 func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
-	png, err := ac.userService.RequestLoginQr()
+	png, sessionId, err := ac.userService.RequestLoginQr()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	c.Set("Content-Type", "image/png")
-	return c.Status(fiber.StatusOK).Send(png)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"base64png": base64.StdEncoding.EncodeToString(png),
+		"sessionId": sessionId,
+	})
 }
 
 func NewAuthController(service services.IUserService) IAuthController {
