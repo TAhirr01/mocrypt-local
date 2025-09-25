@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"time"
 	"user_management_ms/config"
@@ -30,7 +31,7 @@ type IUserService interface {
 	Verify2FA(email, phone, code string) (bool, error)
 	SetPIN(email, phone, pin string) error
 	VerifyPIN(email, phone, pin string) (bool, error)
-	RequestLoginQr() ([]byte, error)
+	RequestLoginQr() ([]byte, string, error)
 	ApproveLoginQr(userId uint, sessionId string) error
 	CheckLoginQr(sessionId string) (*response.QrLoginResponse, error)
 }
@@ -435,18 +436,19 @@ func (u *UserService) VerifyPIN(email, phone, pin string) (bool, error) {
 	return true, nil
 }
 
-func (u *UserService) RequestLoginQr() ([]byte, error) {
+func (u *UserService) RequestLoginQr() ([]byte, string, error) {
 	sessionId, _ := uuid.GenerateUUID()
 	err := u.redis.StoreLoginSessionRedis(sessionId)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	png, err := qrcode.Encode(sessionId, qrcode.Medium, 256)
+	url := fmt.Sprintf("https://mocadomain.com/qr-login?sessionId=%s", sessionId)
+	png, err := qrcode.Encode(url, qrcode.Medium, 256)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return png, nil
+	return png, sessionId, nil
 }
 
 func (u *UserService) ApproveLoginQr(userId uint, sessionId string) error {
