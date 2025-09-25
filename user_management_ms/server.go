@@ -1,18 +1,21 @@
 package main
 
 import (
+	"time"
 	"user_management_ms/config"
 	"user_management_ms/controller"
 	"user_management_ms/middleware"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"go.uber.org/zap"
 )
 
 type Server struct {
 	AuthController       controller.IAuthController
 	GoogleAuthController controller.IGoogleAuthController
 	WebAuthnController   controller.IPasskeyController
+	Logger               *zap.Logger
 }
 
 // NOTE: Server Constructor
@@ -20,11 +23,13 @@ func NewServer(
 	AuthController controller.IAuthController,
 	GoogleAuthController controller.IGoogleAuthController,
 	WebAuthnController controller.IPasskeyController,
+	Logger *zap.Logger,
 ) *Server {
 	return &Server{
 		AuthController:       AuthController,
 		GoogleAuthController: GoogleAuthController,
 		WebAuthnController:   WebAuthnController,
+		Logger:               Logger,
 	}
 }
 
@@ -39,13 +44,16 @@ func (s *Server) Start() *fiber.App {
 		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 	}))
 
+	app.Use(middleware.GlobalRateLimiter())
+
 	// NOTE: Define API paths (context path and grouping by version)
 	contextPath := app.Group(config.Conf.Application.Server.ContextPath)
 	apiVersion := contextPath.Group(config.Conf.Application.Server.ApiVersion)
 
 	//s.configureAuthGroup(apiVersion)
 	authGroup := apiVersion.Group("/auth")
-	authGroup.Post("/request-otp", s.AuthController.RegisterRequestOTP)
+	authGroup.Use(middleware.LoggingMiddleware(s.Logger))
+	authGroup.Post("/request-otp", middleware.RouteRateLimiter(10, 10*time.Minute), s.AuthController.RegisterRequestOTP)
 	authGroup.Post("/verify-otp", s.AuthController.VerifyRegisterOTP)
 	authGroup.Post("/resend-otp", s.AuthController.ResendOTP)
 	authGroup.Post("/complete-registration", s.AuthController.CompleteRegistration)
@@ -56,6 +64,9 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/verify-2fa", s.AuthController.Verify2FA)
 	authGroup.Post("/pin/set", s.AuthController.SetPIN)
 	authGroup.Post("/pin/verify", s.AuthController.VerifyPIN)
+	authGroup.Post("/qr", s.AuthController.QrLoginRequest)
+	authGroup.Post("/qr/approve/:userId/:sessionId", s.AuthController.ApproveLoginRequest)
+	authGroup.Post("/qr/:sessionId/status", s.AuthController.CheckLoginRequest)
 
 	authGroup.Get("/google/call-back", s.GoogleAuthController.GoogleCallback)
 	authGroup.Get("/google/login", s.GoogleAuthController.GoogleLogin)
