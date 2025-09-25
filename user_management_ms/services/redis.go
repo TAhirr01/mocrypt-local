@@ -102,8 +102,9 @@ func (s *RedisService) StoreLoginSessionRedis(sessionId string) error {
 		Status: "PENDING",
 		UserId: 0,
 	}
+	data, _ := json.Marshal(redisSession)
 
-	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), redisSession, 1*time.Minute).Err()
+	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), data, 10*time.Minute).Err()
 }
 
 func (s *RedisService) GetLoginSessionRedis(sessionId string) (*RedisSession, error) {
@@ -125,5 +126,6 @@ func (s *RedisService) DeleteLoginSessionRedis(sessionId string) error {
 
 func (s *RedisService) UpdateLoginSessionRedis(sessionId string, session *RedisSession) error {
 	s.rdb.Del(ctx, fmt.Sprintf("qrlogin:%s", sessionId))
-	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), session, 1*time.Minute).Err()
+	data, _ := json.Marshal(session)
+	return s.rdb.Set(ctx, fmt.Sprintf("qrlogin:%s", sessionId), data, 10*time.Minute).Err()
 }
