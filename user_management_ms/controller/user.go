@@ -63,7 +63,8 @@ func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	return c.Status(fiber.StatusOK).JSON(png)
+	c.Set("Content-Type", "image/png")
+	return c.Status(fiber.StatusOK).Send(png)
 }
 
 func NewAuthController(service services.IUserService) IAuthController {
