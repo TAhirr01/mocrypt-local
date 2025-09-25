@@ -65,7 +65,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/pin/set", s.AuthController.SetPIN)
 	authGroup.Post("/pin/verify", s.AuthController.VerifyPIN)
 	authGroup.Post("/qr", s.AuthController.QrLoginRequest)
-	authGroup.Post("/qr/approve/:userId/:sessionId", s.AuthController.ApproveLoginRequest)
+	authGroup.Post("/qr/approve", middleware.AuthMiddleware(), s.AuthController.ApproveLoginRequest)
 	authGroup.Post("/qr/:sessionId/status", s.AuthController.CheckLoginRequest)
 
 	authGroup.Get("/google/call-back", s.GoogleAuthController.GoogleCallback)
