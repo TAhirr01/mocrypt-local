@@ -47,7 +47,7 @@ func LoggingMiddleware(logger *zap.Logger) fiber.Handler {
 			ResponseErr string `json:"error"`
 		}{}
 		if jsonErr := json.Unmarshal(responseBody, &responseErr); jsonErr != nil {
-			responseErr.ResponseErr = string(responseBody)
+			responseErr.ResponseErr = ""
 		}
 
 		fields := []zap.Field{
