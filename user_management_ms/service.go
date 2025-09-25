@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/log"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
@@ -23,6 +24,9 @@ import (
 type service struct {
 	//DB
 	dbConnection *gorm.DB
+
+	//logger
+	logger *zap.Logger
 
 	//Redis Client
 	redisClient *redis.Client
@@ -64,13 +68,16 @@ func (s *service) Start() {
 
 	log.Info("WebAuthn config")
 	s.webAuthn = config.InitWebAuthn()
+
+	log.Info("Initialize Logger")
+	s.logger = config.InitLogger()
 	// NOTE: Dependency Injections
 	log.Info("WebAuthn configurated successfully")
 	s.DependencyInjection()
 	//TODO: coment and log
 
 	// NOTE: Start Fiber server...
-	app := NewServer(s.authController, s.googleAuthController, s.passkeyController).Start()
+	app := NewServer(s.authController, s.googleAuthController, s.passkeyController, s.logger).Start()
 
 	log.Info("Server starting..")
 	// NOTE: Server start with goroutine
@@ -99,7 +106,7 @@ func (s *service) DependencyInjection() {
 	s.redisService = services.NewRedisService(s.redisClient)
 	s.userService = services.NewUserService(s.dbConnection, s.userRepository, s.redisService, s.jwtService)
 	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.googleRepository, s.jwtService, s.redisService)
-	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService)
+	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService, s.jwtService)
 	// NOTE: Controllers Injections
 	s.authController = controller.NewAuthController(s.userService)
 	s.googleAuthController = controller.NewGoogleAuthController(s.googleService)
