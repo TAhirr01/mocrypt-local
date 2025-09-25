@@ -99,7 +99,7 @@ func (s *service) DependencyInjection() {
 	s.redisService = services.NewRedisService(s.redisClient)
 	s.userService = services.NewUserService(s.dbConnection, s.userRepository, s.redisService, s.jwtService)
 	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.googleRepository, s.jwtService, s.redisService)
-	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService)
+	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService, s.jwtService)
 	// NOTE: Controllers Injections
 	s.authController = controller.NewAuthController(s.userService)
 	s.googleAuthController = controller.NewGoogleAuthController(s.googleService)
