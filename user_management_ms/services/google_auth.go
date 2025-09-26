@@ -10,7 +10,8 @@ import (
 	"user_management_ms/domain"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
-	"user_management_ms/repository"
+	"user_management_ms/repository/command_repository"
+	"user_management_ms/repository/query_repository"
 	"user_management_ms/util"
 
 	"golang.org/x/crypto/bcrypt"
@@ -32,18 +33,21 @@ type IGoogleAuthService interface {
 	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error)
 	CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error)
 	SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error)
+	LoginOrRegister(isNew bool, user *domain.User) (*response.CallBackResponse, error)
 }
 
 type GoogleAuthService struct {
-	db         *gorm.DB
-	oauthConf  *oauth2.Config
-	jwt        IJWTService
-	googleRepo repository.IGoogleRepository
-	redis      IRedisService
+	db        *gorm.DB
+	oauthConf *oauth2.Config
+	jwt       IJWTService
+	command   command_repository.IUserCommandRepository
+	query     query_repository.IUserQueryRepository
+
+	redis IRedisService
 }
 
-func NewGoogleAuthService(db *gorm.DB, oauthConf *oauth2.Config, googleRepo repository.IGoogleRepository, jwtService IJWTService, rdb IRedisService) IGoogleAuthService {
-	return &GoogleAuthService{googleRepo: googleRepo, oauthConf: oauthConf, jwt: jwtService, db: db, redis: rdb}
+func NewGoogleAuthService(db *gorm.DB, oauthConf *oauth2.Config, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwtService IJWTService, rdb IRedisService) IGoogleAuthService {
+	return &GoogleAuthService{oauthConf: oauthConf, query: query, command: command, jwt: jwtService, db: db, redis: rdb}
 }
 func (g *GoogleAuthService) LoginGoogle(state string) string {
 	url := g.oauthConf.AuthCodeURL(state)
@@ -95,15 +99,12 @@ func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.Googl
 
 func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
 	// validate input quickly (optional but helpful)
-	if req.Email == "" {
-		return nil, errors.New("email is required")
-	}
 	if req.Phone == "" {
 		return nil, errors.New("phone is required")
 	}
 
 	// Try to find user by email only (not email+phone) — this fixes the unreachable-case bug.
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -114,25 +115,33 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 		// If both phone and email are already verified -> do nothing, return verified status.
 		// NOTE: this code assumes you have both PhoneVerified and EmailVerified fields.
 		if user.Phone != "" && user.Phone == req.Phone && user.PhoneVerified && user.EmailVerified {
-			log.Println("User already fully verified")
 			return &response.GoogleResponse{
+				UserId:        user.Id,
 				Email:         user.Email,
 				Phone:         user.Phone,
-				Status:        "verified",
+				Status:        response.VERIFIED,
 				PhoneVerified: user.PhoneVerified,
 			}, nil
 		}
-		// Case 2: If user has a phone but input phone is not his
+		// Case 2: If user has a phone but not verified
 		// If user has a phone, and it's the same as requested phone
-		if user.Phone != "" && user.Phone == req.Phone {
-			// If phone exists but not verified -> resend phone OTP
+		if user.Phone != "" && user.Phone == req.Phone && !user.PhoneVerified {
+			if _, err := g.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone}); err != nil {
+			}
+			return &response.GoogleResponse{
+				UserId:        user.Id,
+				Email:         user.Email,
+				Phone:         user.Phone,
+				Status:        response.UNVERIFIED,
+				PhoneVerified: user.PhoneVerified,
+			}, nil
 
 		}
 		// Case 2: User don't have a phone yet attach a phone to user
 		// If user exists, but they have no phone yet (we want to attach req.Phone)
 		if user.Phone == "" {
 			// check whether another user already uses requested phone
-			isExists, err := g.googleRepo.IsUserWithPhoneExists(g.db, req.Phone)
+			isExists, err := g.query.IsUserWithPhoneExists(g.db, req.Phone)
 			if err != nil {
 				return nil, err
 			}
@@ -141,38 +150,26 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 			}
 
 			// attach phone and create phone OTP
-			otp := util.GenerateOTP()
-			expire := time.Now().Add(5 * time.Minute)
-
-			updatedUser, err := g.googleRepo.UpdateGoogleUserPhone(g.db, req.Email, req.Phone, otp, expire)
-			if err != nil {
+			if _, err := g.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone}); err != nil {
 				return nil, err
 			}
-
-			// send OTP via kafka
-			if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{
-				Phone:    updatedUser.Phone,
-				PhoneOTP: otp,
-			}); err != nil {
-				return nil, err
-			}
-
 			return &response.GoogleResponse{
-				Email:         updatedUser.Email,
-				Phone:         updatedUser.Phone,
-				Status:        "phone_verification_pending",
-				PhoneVerified: updatedUser.PhoneVerified,
+				UserId:        user.Id,
+				Email:         user.Email,
+				Phone:         req.Phone,
+				Status:        response.VERIFICATION_PENDING,
+				PhoneVerified: user.PhoneVerified,
 			}, nil
 		}
-
 		// Case 3: Users phone is different that what user requested
 		// If user exists but their phone is different from requested -> phone_mismatch
 		if user.Phone != "" && user.Phone != req.Phone {
 			log.Println("Case: User exists but requested phone is not user's")
 			return &response.GoogleResponse{
+				UserId: user.Id,
 				Email:  user.Email,
 				Phone:  user.Phone,
-				Status: "phone_mismatch",
+				Status: response.PHONE_MISMATCH,
 			}, nil
 		}
 	}
@@ -188,7 +185,7 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 }
 
 func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) {
-	user, err := g.googleRepo.FindUserByGoogleId(g.db, id)
+	user, err := g.query.GetUserByGoogleId(g.db, id)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +193,7 @@ func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) 
 }
 
 func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error) {
-	user, err := g.googleRepo.GetUserWithEmailAndPhone(g.db, req.Email, req.Phone)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -207,11 +204,11 @@ func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) 
 	user.PhoneOtp = ""
 	user.PhoneOtpExpireDate = nil
 
-	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
 	return &response.OTPResponsePhone{
-		Phone:         req.Phone,
+		Phone:         user.Phone,
 		PhoneVerified: user.PhoneVerified,
 		Status:        "otp_verified",
 		Message:       "Completion of registration is needed ",
@@ -220,7 +217,7 @@ func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) 
 
 func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error) {
 	// 1. Check if user exists
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -240,9 +237,9 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 	}
 
 	// 4. Update birthday + password
-	user, err = g.googleRepo.UpdateUserBirthdayAndPassword(
+	user, err = g.command.UpdateUserPasswordAndBirthDateById(
 		g.db,
-		req.Email,
+		req.UserId,
 		string(hashedPassword),
 		req.BirthDate,
 	)
@@ -263,7 +260,7 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 }
 
 func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error) {
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	user, err := g.query.GetUserByEmail(g.db, req.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +268,7 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 	expire := time.Now().Add(5 * time.Minute)
 	user.EmailOtp = otp
 	user.EmailOtpExpireDate = &expire
-	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
 	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: otp}); err != nil {
@@ -285,7 +282,7 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 }
 
 func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
-	user, err := g.googleRepo.FindUserByEmail(g.db, req.Email)
+	user, err := g.query.GetUserByEmail(g.db, req.Email)
 	if user != nil && (user.Password == "" || user.BirthDate == nil) {
 		return nil, errors.New("user hasn't completed registration")
 	}
@@ -297,7 +294,7 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 	}
 	user.EmailOtp = ""
 	user.EmailOtpExpireDate = nil
-	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
 	tokens, err := g.jwt.GenerateTokens(user)
@@ -313,12 +310,15 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 // CreteNewGoogleUser return:User,new user created,error
 func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error) {
 	// Check if a user already exists with this email
-	user, err := g.googleRepo.FindUserByEmail(g.db, email)
+	user, err := g.query.GetUserByEmail(g.db, email)
 	if err == nil && user != nil {
 		// User exists → link Google ID
 		if user.GoogleID == "" {
 			user.GoogleID = googleId
-			if _, err := g.googleRepo.Update(g.db, user); err != nil {
+			user.EmailOtp = ""
+			user.EmailOtpExpireDate = nil
+			user.EmailVerified = true
+			if err := g.command.Update(g.db, user); err != nil {
 				return nil, false, err
 			}
 		}
@@ -327,7 +327,7 @@ func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// No user exists → create new user
-		newUser, err := g.googleRepo.Create(g.db, &domain.User{Email: email, GoogleID: googleId})
+		newUser, err := g.command.Create(g.db, &domain.User{Email: email, GoogleID: googleId, EmailVerified: true})
 		if err != nil {
 			return nil, false, err
 		}
@@ -337,15 +337,16 @@ func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.
 }
 
 func (g *GoogleAuthService) SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error) {
-	user, err := g.googleRepo.FindUserByPhoneNumber(g.db, req.Phone)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
 	otp := util.GenerateOTP()
 	expire := time.Now().Add(5 * time.Minute)
+	user.Phone = req.Phone
 	user.PhoneOtp = otp
 	user.PhoneOtpExpireDate = &expire
-	if _, err := g.googleRepo.Update(g.db, user); err != nil {
+	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
 	if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: req.Phone, PhoneOTP: otp}); err != nil {
@@ -356,4 +357,50 @@ func (g *GoogleAuthService) SendPhoneVerificationOtp(req *request.OTPRequestPhon
 		Status:  "otp_sent",
 		Message: "Email OTP sent",
 	}, nil
+}
+
+func (g *GoogleAuthService) LoginOrRegister(isNew bool, user *domain.User) (*response.CallBackResponse, error) {
+	if isNew {
+		// New user → needs to complete registration
+		return &response.CallBackResponse{
+			UserId:   user.Id,
+			Status:   "new_user",
+			Phone:    user.Phone,
+			Email:    user.Email,
+			GoogleId: user.GoogleID,
+		}, nil
+	}
+
+	//Phone hasn't verified send verification
+	if isNew == false && !user.PhoneVerified {
+		return &response.CallBackResponse{
+			UserId:   user.Id,
+			Status:   "send_request_phone",
+			Phone:    user.Phone,
+			Email:    user.Email,
+			GoogleId: user.GoogleID,
+		}, nil
+	}
+	if isNew == false && user.PhoneVerified && user.Password != "" {
+		if _, err := g.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
+			return nil, err
+		}
+		return &response.CallBackResponse{
+			UserId:   user.Id,
+			Status:   "send_login",
+			Phone:    user.Phone,
+			Email:    user.Email,
+			GoogleId: user.GoogleID,
+		}, nil
+	}
+	if isNew == false && user.PhoneVerified && user.Password == "" {
+		return &response.CallBackResponse{
+			UserId:   user.Id,
+			Status:   "send_completion",
+			Phone:    user.Phone,
+			Email:    user.Email,
+			GoogleId: user.GoogleID,
+		}, nil
+	}
+	return nil, errors.New("shouldn't happen")
 }
