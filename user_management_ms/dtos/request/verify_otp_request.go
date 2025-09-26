@@ -1,16 +1,14 @@
 package request
 
 type VerifyOTPRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Phone    string `json:"phone" validate:"required"`
+	UserId   uint   `json:"user_id"`
 	EmailOTP string `json:"email_otp" validate:"required"`
 	PhoneOTP string `json:"phone_otp" validate:"required"`
 }
 
 type VerifyNumberOTPRequest struct {
-	Email    string `json:"email" validate:"required,email"`
+	UserId   uint   `json:"user_id"`
 	PhoneOTP string `json:"phone_otp" validate:"required"`
-	Phone    string `json:"phone" validate:"required"`
 }
 
 type VerifyEmailOTPRequest struct {

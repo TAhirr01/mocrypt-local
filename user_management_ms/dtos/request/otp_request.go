@@ -6,7 +6,8 @@ type OTPRequest struct {
 }
 
 type OTPRequestPhone struct {
-	Phone string `json:"phone" validate:"required"`
+	UserId uint   `json:"userId" validate:"required,gte=1"`
+	Phone  string `json:"phone" validate:"required"`
 }
 
 type OTPRequestEmail struct {

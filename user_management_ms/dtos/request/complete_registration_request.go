@@ -3,13 +3,13 @@ package request
 import "time"
 
 type CompleteRegisterRequest struct {
-	Email     string     `json:"email" validate:"required,email"`
+	UserId    uint       `json:"user_id"`
 	BirthDate *time.Time `json:"birth_date" validate:"required"`
 	Password  string     `json:"password" validate:"required"`
 }
 
 type CompleteGoogleRegistration struct {
-	Email     string     `json:"email" validate:"required"`
+	UserId    uint       `json:"user_id"`
 	BirthDate *time.Time `json:"birth_date" validate:"required"`
 	Password  string     `json:"password" validate:"required"`
 }

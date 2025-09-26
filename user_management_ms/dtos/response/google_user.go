@@ -7,3 +7,11 @@ type GoogleUser struct {
 	Name          string `json:"name"`
 	Picture       string `json:"picture"`
 }
+
+type CallBackResponse struct {
+	UserId   uint   `json:"user_id"`
+	Status   string `json:"status"`
+	Phone    string `json:"phone"`
+	Email    string `json:"email"`
+	GoogleId string `json:"google_id"`
+}

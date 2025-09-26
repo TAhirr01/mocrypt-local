@@ -1,6 +1,16 @@
 package response
 
+type Status string
+
+const (
+	VERIFIED             Status = "verified"
+	UNVERIFIED           Status = "unverified"
+	PHONE_MISMATCH       Status = "phone_mismatch"
+	VERIFICATION_PENDING Status = "verification_pending"
+)
+
 type OTPResponse struct {
+	UserId        uint   `json:"user_id"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
 	EmailVerified bool   `json:"email_verified"`
@@ -15,6 +25,7 @@ type SendOTPResponse struct {
 }
 
 type RegisterResponse struct {
+	UserId        uint   `json:"user_id"`
 	UserType      string `json:"user_type"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
@@ -39,13 +50,15 @@ type OTPResponseEmail struct {
 }
 
 type GoogleResponse struct {
+	UserId        uint   `json:"user_id"`
 	Email         string `json:"email"`
 	Phone         string `json:"phone"`
 	PhoneVerified bool   `json:"phone_verified"`
-	Status        string `json:"status"`
+	Status        Status `json:"status"`
 }
 
 type LoginResponse struct {
-	Email string `json:"email"`
-	Phone string `json:"phone"`
+	UserId uint   `json:"user_id"`
+	Email  string `json:"email"`
+	Phone  string `json:"phone"`
 }
