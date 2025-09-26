@@ -9,7 +9,8 @@ import (
 	"user_management_ms/domain"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
-	"user_management_ms/repository"
+	"user_management_ms/repository/command_repository"
+	"user_management_ms/repository/query_repository"
 	"user_management_ms/util"
 
 	"github.com/hashicorp/go-uuid"
@@ -27,35 +28,38 @@ type IUserService interface {
 	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error)
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
-	Setup2FA(email, phone string) (*response.TwoFASetupResponse, error)
-	Verify2FA(email, phone, code string) (bool, error)
-	SetPIN(email, phone, pin string) error
-	VerifyPIN(email, phone, pin string) (bool, error)
+	Setup2FA(userId uint) (*response.TwoFASetupResponse, error)
+	Verify2FA(userId uint, code string) (bool, error)
+	SetPIN(userId uint, pin string) error
+	VerifyPIN(userId uint, pin string) (bool, error)
 	RequestLoginQr() ([]byte, string, error)
 	ApproveLoginQr(userId uint, sessionId string) error
 	CheckLoginQr(sessionId string) (*response.QrLoginResponse, error)
 }
 
 type UserService struct {
-	db    *gorm.DB
-	redis IRedisService
-	repo  repository.IUserRepository
-	jwt   IJWTService
+	db      *gorm.DB
+	redis   IRedisService
+	command command_repository.IUserCommandRepository
+	query   query_repository.IUserQueryRepository
+	jwt     IJWTService
 }
 
-func NewUserService(db *gorm.DB, repo repository.IUserRepository, redis IRedisService, jwt IJWTService) IUserService {
-	return &UserService{db: db, repo: repo, redis: redis, jwt: jwt}
+func NewUserService(db *gorm.DB, redis IRedisService, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwt IJWTService) IUserService {
+	return &UserService{db: db, redis: redis, command: command, query: query, jwt: jwt}
 }
 
 func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*response.RegisterResponse, error) {
-	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, req.Email, req.Phone)
+	user, err := u.query.GetUserWithEmailAndPhone(u.db, req.Email, req.Phone)
 	emailOtp := util.GenerateOTP()
 	phoneOtp := util.GenerateOTP()
+	t := time.Now().Add(5 * time.Minute)
 	if err == nil {
 		// User mövcuddur
 		if user.EmailVerified && user.PhoneVerified && user.Password == "" {
 			// User OTP verified amma registration tamamlanmayıb
 			return &response.RegisterResponse{
+				UserId:        user.Id,
 				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
@@ -67,6 +71,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 		} else if user.EmailVerified && user.PhoneVerified && user.Password != "" {
 			// User OTP verified və password mövcuddur → login lazımdır
 			return &response.RegisterResponse{
+				UserId:        user.Id,
 				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
@@ -77,7 +82,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 			}, nil
 		} else if !(user.EmailVerified && user.PhoneVerified) {
 			// User mövcuddur amma OTP verified deyil → OTP göndərilməlidir
-			if err := u.repo.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOtp, phoneOtp); err != nil {
+			if err := u.command.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOtp, phoneOtp); err != nil {
 				return nil, err
 			}
 			if err := SendVerifyEmailAndPhoneNumberEvent(
@@ -87,6 +92,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 				return nil, err
 			}
 			return &response.RegisterResponse{
+				UserId:        user.Id,
 				UserType:      user.UserType,
 				Email:         user.Email,
 				Phone:         user.Phone,
@@ -97,9 +103,10 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 			}, nil
 		}
 	} else {
-		existingUser, err := u.repo.GetUserByEmailOrPhone(u.db, req.Email, req.Phone)
+		existingUser, err := u.query.GetUserByEmailOrPhone(u.db, req.Email, req.Phone)
 		if existingUser != nil && err == nil {
 			return &response.RegisterResponse{
+				UserId:   existingUser.Id,
 				UserType: existingUser.UserType,
 				Email:    existingUser.Email,
 				Phone:    existingUser.Phone,
@@ -108,14 +115,15 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 		}
 		// User yoxdur → yeni user yarat
 		newUser := &domain.User{
-			UserType: req.UserType,
-			Email:    req.Email,
-			Phone:    req.Phone,
+			UserType:           req.UserType,
+			Email:              req.Email,
+			Phone:              req.Phone,
+			EmailOtp:           emailOtp,
+			PhoneOtp:           phoneOtp,
+			EmailOtpExpireDate: &t,
+			PhoneOtpExpireDate: &t,
 		}
-		if _, err := u.repo.Create(u.db, newUser); err != nil {
-			return nil, err
-		}
-		if err := u.repo.SetUserEmailPhoneOtpAndExpireDates(u.db, newUser, emailOtp, phoneOtp); err != nil {
+		if _, err := u.command.Create(u.db, newUser); err != nil {
 			return nil, err
 		}
 		if err := SendVerifyEmailAndPhoneNumberEvent(
@@ -126,6 +134,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 		}
 
 		return &response.RegisterResponse{
+			UserId:        newUser.Id,
 			UserType:      newUser.UserType,
 			Email:         newUser.Email,
 			Phone:         newUser.Phone,
@@ -141,7 +150,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 }
 
 func (u *UserService) VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error) {
-	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, otRequest.Email, otRequest.Phone)
+	user, err := u.query.GetByID(u.db, otRequest.UserId)
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
@@ -156,11 +165,12 @@ func (u *UserService) VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*r
 
 	user.PhoneVerified = true
 	user.EmailVerified = true
-	if err := u.repo.DeteUserOtpAndExpireDate(u.db, user); err != nil {
+	if err := u.command.DeleteUserOtpAndExpireDate(u.db, user); err != nil {
 		return nil, err
 	}
 
 	return &response.OTPResponse{
+		UserId:        user.Id,
 		Email:         user.Email,
 		Phone:         user.Phone,
 		Status:        "otp_verified",
@@ -171,7 +181,7 @@ func (u *UserService) VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*r
 
 func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest) (*response.Tokens, error) {
 	// 1. Check if user exists
-	user, err := u.repo.GetUserByEmail(u.db, req.Email)
+	user, err := u.query.GetByID(u.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -191,9 +201,9 @@ func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest)
 	}
 
 	// 4. Update birthday + password
-	user, err = u.repo.UpdateUserPasswordAndBirthDate(
+	user, err = u.command.UpdateUserPasswordAndBirthDateById(
 		u.db,
-		req.Email,
+		req.UserId,
 		string(hashedPassword),
 		req.BirthDate,
 	)
@@ -214,7 +224,7 @@ func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest)
 }
 
 func (u *UserService) SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error) {
-	if err := u.repo.SaveUserOTPs(u.db, req.Email, req.Phone, 5*time.Minute); err != nil {
+	if err := u.command.SaveUserOTPs(u.db, req.Email, req.Phone, 5*time.Minute); err != nil {
 		return nil, err
 	}
 	return &response.SendOTPResponse{
@@ -225,7 +235,7 @@ func (u *UserService) SendOTP(req *request.OTPRequest) (*response.SendOTPRespons
 }
 
 func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error) {
-	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, req.Email, req.Phone)
+	user, err := u.query.GetUserWithEmailAndPhone(u.db, req.Email, req.Phone)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +246,7 @@ func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.Logi
 	// OTP yenidən generate və Kafka event
 	emailOTP := util.GenerateOTP()
 	phoneOTP := util.GenerateOTP()
-	if err := u.repo.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOTP, phoneOTP); err != nil {
+	if err := u.command.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOTP, phoneOTP); err != nil {
 		return nil, err
 	}
 	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{
@@ -254,13 +264,14 @@ func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.Logi
 	}
 
 	return &response.LoginResponse{
-		Email: user.Email,
-		Phone: user.Phone,
+		UserId: user.Id,
+		Email:  user.Email,
+		Phone:  user.Phone,
 	}, nil
 }
 
 func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error) {
-	user, err := u.repo.GetUserWithEmailAndPhoneNumber(u.db, otRequest.Email, otRequest.Phone)
+	user, err := u.query.GetByID(u.db, otRequest.UserId)
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
@@ -282,7 +293,7 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 
 	}
 
-	if err := u.repo.DeteUserOtpAndExpireDate(u.db, user); err != nil {
+	if err := u.command.DeleteUserOtpAndExpireDate(u.db, user); err != nil {
 		return nil, err
 	}
 
@@ -355,8 +366,8 @@ func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Toke
 	}, nil
 }
 
-func (u *UserService) Setup2FA(email, phone string) (*response.TwoFASetupResponse, error) {
-	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+func (u *UserService) Setup2FA(userId uint) (*response.TwoFASetupResponse, error) {
+	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +384,7 @@ func (u *UserService) Setup2FA(email, phone string) (*response.TwoFASetupRespons
 	}
 
 	user.Google2FASecret = key.Secret()
-	if err := u.repo.Update(u.db, user); err != nil {
+	if err := u.command.Update(u.db, user); err != nil {
 		return nil, err
 	}
 
@@ -388,15 +399,15 @@ func (u *UserService) Setup2FA(email, phone string) (*response.TwoFASetupRespons
 	}, nil
 }
 
-func (u *UserService) Verify2FA(email, phone, code string) (bool, error) {
-	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+func (u *UserService) Verify2FA(userId uint, code string) (bool, error) {
+	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return false, err
 	}
 	valid := totp.Validate(code, user.Google2FASecret)
 	if valid {
 		user.Is2FAVerified = true
-		err := u.repo.Update(u.db, user)
+		err := u.command.Update(u.db, user)
 		if err != nil {
 			log.Println("Failed to update user:", err)
 		}
@@ -404,8 +415,8 @@ func (u *UserService) Verify2FA(email, phone, code string) (bool, error) {
 	return valid, nil
 }
 
-func (u *UserService) SetPIN(email, phone, pin string) error {
-	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+func (u *UserService) SetPIN(userId uint, pin string) error {
+	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return err
 	}
@@ -416,11 +427,11 @@ func (u *UserService) SetPIN(email, phone, pin string) error {
 	}
 
 	user.PINHash = hashed
-	return u.repo.Update(u.db, user)
+	return u.command.Update(u.db, user)
 }
 
-func (u *UserService) VerifyPIN(email, phone, pin string) (bool, error) {
-	user, err := u.repo.GetCompletedUsersByEmailAndPhone(u.db, email, phone)
+func (u *UserService) VerifyPIN(userId uint, pin string) (bool, error) {
+	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return false, err
 	}
@@ -475,7 +486,7 @@ func (u *UserService) CheckLoginQr(sessionId string) (*response.QrLoginResponse,
 	case "PENDING":
 		return &response.QrLoginResponse{Status: response.StatusPending}, nil
 	case "APPROVED":
-		user, err := u.repo.GetByID(u.db, session.UserId)
+		user, err := u.query.GetByID(u.db, session.UserId)
 		if err != nil {
 			return nil, err
 		}
