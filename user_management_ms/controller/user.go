@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/base64"
 	"log"
+	"strconv"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -110,8 +111,8 @@ func (ac *AuthController) RegisterRequestOTP(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
-	email := c.Query("email")
-	phone := c.Query("phone")
+	userIdParam := c.Params("userId")
+	userId, err := strconv.Atoi(userIdParam)
 	var req request.EmailAndPhoneOTP
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -123,7 +124,7 @@ func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	response, err := ac.userService.VerifyRegisterOTP(&request.VerifyOTPRequest{Email: email, Phone: phone, EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
+	response, err := ac.userService.VerifyRegisterOTP(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -133,7 +134,8 @@ func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) CompleteRegistration(c *fiber.Ctx) error {
-	email := c.Query("email")
+	userIdParam := c.Params("userId")
+	userId, err := strconv.Atoi(userIdParam)
 	var req request.BirthDateAndPassword
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -145,7 +147,7 @@ func (ac *AuthController) CompleteRegistration(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	response, err := ac.userService.CompleteRegistration(&request.CompleteRegisterRequest{Email: email, Password: req.Password, BirthDate: req.BirthDate})
+	response, err := ac.userService.CompleteRegistration(&request.CompleteRegisterRequest{UserId: uint(userId), Password: req.Password, BirthDate: req.BirthDate})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -191,8 +193,8 @@ func (ac *AuthController) LoginLocal(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) VerifyLoginOTP(c *fiber.Ctx) error {
-	email := c.Query("email")
-	phone := c.Query("phone")
+	userIdParam := c.Params("userId")
+	userId, err := strconv.Atoi(userIdParam)
 	var req request.EmailAndPhoneOTP
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -204,7 +206,7 @@ func (ac *AuthController) VerifyLoginOTP(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	response, err := ac.userService.VerifyLoginOTP(&request.VerifyOTPRequest{Email: email, Phone: phone, EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
+	response, err := ac.userService.VerifyLoginOTP(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -230,10 +232,9 @@ func (ac *AuthController) RefreshToken(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) Setup2FA(c *fiber.Ctx) error {
-	email := c.Query("email")
-	phone := c.Query("phone")
+	userId := c.Locals("userId")
 
-	resp, err := ac.userService.Setup2FA(email, phone)
+	resp, err := ac.userService.Setup2FA(uint(userId.(float64)))
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -245,8 +246,7 @@ func (ac *AuthController) Setup2FA(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
-	email := c.Query("email")
-	phone := c.Query("phone")
+	userId := c.Locals("userId")
 
 	var body struct {
 		Code string `json:"code"`
@@ -254,7 +254,7 @@ func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
-	verified, err := ac.userService.Verify2FA(email, phone, body.Code)
+	verified, err := ac.userService.Verify2FA(uint(userId.(float64)), body.Code)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -266,14 +266,17 @@ func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) SetPIN(c *fiber.Ctx) error {
-	req := request.PINRequest{}
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
 
+	req := struct {
+		Pin string `json:"pin"`
+	}{}
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
-	err := ac.userService.SetPIN(req.Email, req.Phone, req.PIN)
-	if err != nil {
+	if err := ac.userService.SetPIN(uint(userId), req.Pin); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -281,13 +284,18 @@ func (ac *AuthController) SetPIN(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) VerifyPIN(c *fiber.Ctx) error {
-	req := request.PINRequest{}
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
+
+	req := struct {
+		Pin string `json:"pin"`
+	}{}
 
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
-	valid, err := ac.userService.VerifyPIN(req.Email, req.Phone, req.PIN)
+	valid, err := ac.userService.VerifyPIN(uint(userId), req.Pin)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -298,16 +306,3 @@ func (ac *AuthController) VerifyPIN(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"message": "PIN verified"})
 }
-
-//func (ac *AuthController) CheckLogin(c *fiber.Ctx) error {
-//	var req *request.CheckLogin
-//	if err := c.BodyParser(&req); err != nil {
-//		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-//			"error": err.Error(),
-//		})
-//	}
-//	if ac.userService.ShouldForceFullAuth(req, 30*24*time.Hour) {
-//		return c.JSON(fiber.Map{"login_type": "full"})
-//	}
-//	return c.JSON(fiber.Map{"login_type": "passkey"})
-//}
