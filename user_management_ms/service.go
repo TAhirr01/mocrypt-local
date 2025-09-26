@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"user_management_ms/repository"
+	"user_management_ms/repository/command_repository"
+	"user_management_ms/repository/query_repository"
 	"user_management_ms/services"
 
 	"os"
@@ -38,8 +39,8 @@ type service struct {
 	webAuthn *webauthn.WebAuthn
 
 	// Repository
-	userRepository   repository.IUserRepository
-	googleRepository repository.IGoogleRepository
+	command command_repository.IUserCommandRepository
+	query   query_repository.IUserQueryRepository
 
 	// Service
 	userService    services.IUserService
@@ -100,13 +101,13 @@ func (s *service) DependencyInjection() {
 		RefreshTTL: time.Duration(config.Conf.Application.Security.TokenValidityInSecondsForRememberMe) * time.Second,
 	}
 	// NOTE: Repositories Injections
-	s.userRepository = repository.NewUserRepository()
-	s.googleRepository = repository.NewGoogleRepository()
+	s.query = query_repository.NewUserQueryRepository()
+	s.command = command_repository.NewUserCommandRepository()
 	// NOTE: Services Injections
 	s.redisService = services.NewRedisService(s.redisClient)
-	s.userService = services.NewUserService(s.dbConnection, s.userRepository, s.redisService, s.jwtService)
-	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.googleRepository, s.jwtService, s.redisService)
-	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.userRepository, s.redisService, s.jwtService)
+	s.userService = services.NewUserService(s.dbConnection, s.redisService, s.command, s.query, s.jwtService)
+	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.command, s.query, s.jwtService, s.redisService)
+	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.command, s.query, s.redisService, s.jwtService)
 	// NOTE: Controllers Injections
 	s.authController = controller.NewAuthController(s.userService)
 	s.googleAuthController = controller.NewGoogleAuthController(s.googleService)
