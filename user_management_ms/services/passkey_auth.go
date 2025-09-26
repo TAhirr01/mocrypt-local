@@ -9,7 +9,8 @@ import (
 	"net/http"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
-	"user_management_ms/repository"
+	"user_management_ms/repository/command_repository"
+	"user_management_ms/repository/query_repository"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -25,21 +26,22 @@ type IPasskeyService interface {
 }
 
 type PasskeyService struct {
-	db       *gorm.DB
-	userRepo repository.IUserRepository
-	wa       *webauthn.WebAuthn
-	jwt      IJWTService
-	redis    IRedisService
+	db      *gorm.DB
+	command command_repository.IUserCommandRepository
+	query   query_repository.IUserQueryRepository
+	wa      *webauthn.WebAuthn
+	jwt     IJWTService
+	redis   IRedisService
 }
 
-func NewPasskeyService(wa *webauthn.WebAuthn, db *gorm.DB, userRepo repository.IUserRepository, redis IRedisService, jwt IJWTService) IPasskeyService {
-	return &PasskeyService{wa: wa, db: db, userRepo: userRepo, redis: redis, jwt: jwt}
+func NewPasskeyService(wa *webauthn.WebAuthn, db *gorm.DB, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, redis IRedisService, jwt IJWTService) IPasskeyService {
+	return &PasskeyService{wa: wa, db: db, redis: redis, query: query, command: command, jwt: jwt}
 }
 
 // RegisterStart start passkey registration stores temporary session inside redis
 func (ps *PasskeyService) RegisterStart(req *request.StartPasskeyRegistrationRequest) (*protocol.CredentialCreation, error) {
 	// 1. Fetch user + existing passkeys from DB
-	user, err := ps.userRepo.GetByID(ps.db, req.UserId)
+	user, err := ps.query.GetByID(ps.db, req.UserId)
 
 	if err != nil {
 		return nil, err
@@ -65,7 +67,7 @@ func (ps *PasskeyService) RegisterStart(req *request.StartPasskeyRegistrationReq
 // RegisterFinish finishes passkey registration it gets stored users passkey session from redis and validates registration if session is valid finishes it and stores
 // credentials in user_passkey table
 func (ps *PasskeyService) RegisterFinish(userID uint, r *http.Request) error {
-	user, err := ps.userRepo.GetByID(ps.db, userID)
+	user, err := ps.query.GetByID(ps.db, userID)
 	if err != nil {
 		return err
 	}
@@ -84,7 +86,7 @@ func (ps *PasskeyService) RegisterFinish(userID uint, r *http.Request) error {
 		return err
 	}
 
-	if err := ps.userRepo.SavePasskey(ps.db, authBytes, user.Id, cred); err != nil {
+	if err := ps.command.SavePasskey(ps.db, authBytes, user.Id, cred); err != nil {
 		return err
 	}
 
@@ -139,7 +141,7 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*respo
 	}
 
 	// Find user by credential ID BEFORE calling FinishDiscoverableLogin
-	user, err := ps.userRepo.FindUserByCredentialID(ps.db, credentialID)
+	user, err := ps.query.GetUserByCredentialID(ps.db, credentialID)
 	if err != nil {
 
 		return nil, errors.New("user has no passkeys register one first")
@@ -154,7 +156,7 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*respo
 
 	// Update the credential's sign count
 	authBytes, _ := json.Marshal(credential.Authenticator)
-	if err := ps.userRepo.UpdatePasskeyAfterLogin(ps.db, credential.ID, authBytes, credential.Authenticator.SignCount); err != nil {
+	if err := ps.command.UpdatePasskeyAfterLogin(ps.db, credential.ID, authBytes, credential.Authenticator.SignCount); err != nil {
 		log.Printf("Warning: failed to update passkey after login: %v", err)
 	}
 
