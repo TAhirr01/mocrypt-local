@@ -2,6 +2,7 @@ package controller
 
 import (
 	"log"
+	"strconv"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
 
@@ -66,53 +67,55 @@ func (ac *GoogleAuthController) GoogleCallback(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
+	response, err := ac.googleService.LoginOrRegister(isNew, user)
 	// 4. Response based on whether it's a new user or existing
-	if isNew {
-		// New user → needs to complete registration
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":             "new_user",
-			"message":            "Phone number verification is needed",
-			"phone_verification": user.PhoneVerified,
-			"email":              user.Email,
-			"google_id":          user.GoogleID,
-		})
-	}
-	if isNew == false && !user.PhoneVerified {
-		if _, err := ac.googleService.SendPhoneVerificationOtp(&request.OTPRequestPhone{Phone: user.Phone}); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"status":             "existing_user",
-			"message":            "user already exists send to verify phone ",
-			"phone_verification": user.PhoneVerified,
-			"phone":              user.Phone,
-			"email":              user.Email,
-			"google_id":          user.GoogleID,
-		})
-	}
-	if isNew == false && user.GoogleID != "" {
-		if _, err := ac.googleService.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":             "existing_user",
-			"message":            "user already exists send to verification ",
-			"phone_verification": user.PhoneVerified,
-			"phone":              user.Phone,
-			"email":              user.Email,
-			"google_id":          user.GoogleID,
-		})
-	}
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{})
+	//if isNew {
+	//	// New user → needs to complete registration
+	//	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+	//		"user_id":   user.Id,
+	//		"status":    "new_user",
+	//		"email":     user.Email,
+	//		"google_id": user.GoogleID,
+	//	})
+	//}
+	//if isNew == false && !user.PhoneVerified {
+	//	if _, err := ac.googleService.SendPhoneVerificationOtp(&request.OTPRequestPhone{Phone: user.Phone}); err != nil {
+	//		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	//			"error": err.Error(),
+	//		})
+	//	}
+	//	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+	//		"user_id":            user.Id,
+	//		"status":             "existing_user",
+	//		"message":            "user already exists send to verify phone ",
+	//		"phone_verification": user.PhoneVerified,
+	//		"phone":              user.Phone,
+	//		"email":              user.Email,
+	//		"google_id":          user.GoogleID,
+	//	})
+	//}
+	//if isNew == false && user.GoogleID != "" {
+	//	if _, err := ac.googleService.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
+	//		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+	//			"error": err.Error(),
+	//		})
+	//	}
+	//	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+	//		"user_id":            user.Id,
+	//		"status":             "existing_user",
+	//		"message":            "user already exists send to verification ",
+	//		"phone_verification": user.PhoneVerified,
+	//		"phone":              user.Phone,
+	//		"email":              user.Email,
+	//		"google_id":          user.GoogleID,
+	//	})
+	//}
+	return c.Status(fiber.StatusOK).JSON(response)
 }
 
 func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
-	email := c.Query("email")
-	log.Println(email)
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
 	var req request.PhoneRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -120,7 +123,7 @@ func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
 		})
 	}
 	log.Println(req.Phone)
-	res, err := ac.googleService.StartGoogleRegistration(&request.StartGoogleRegistration{Email: email, Phone: req.Phone})
+	res, err := ac.googleService.StartGoogleRegistration(&request.StartGoogleRegistration{UserId: uint(userId), Phone: req.Phone})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -130,15 +133,15 @@ func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
 }
 
 func (ac *GoogleAuthController) GoogleVerifyRequestOTP(c *fiber.Ctx) error {
-	email := c.Params("email")
-	phone := c.Query("phone")
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
 	var req request.PhoneOTP
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	res, err := ac.googleService.VerifyPhoneOTP(&request.VerifyNumberOTPRequest{Email: email, Phone: phone, PhoneOTP: req.PhoneOTP})
+	res, err := ac.googleService.VerifyPhoneOTP(&request.VerifyNumberOTPRequest{UserId: uint(userId), PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -165,14 +168,15 @@ func (ac *GoogleAuthController) GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error 
 }
 
 func (ac *GoogleAuthController) CompleteGoogleRegistration(c *fiber.Ctx) error {
-	email := c.Query("email")
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
 	var compete request.BirthDateAndPassword
 	if err := c.BodyParser(&compete); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	res, err := ac.googleService.CompleteGoogleRegistration(&request.CompleteGoogleRegistration{Email: email, BirthDate: compete.BirthDate, Password: compete.Password})
+	res, err := ac.googleService.CompleteGoogleRegistration(&request.CompleteGoogleRegistration{UserId: uint(userId), BirthDate: compete.BirthDate, Password: compete.Password})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
