@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"time"
 	"user_management_ms/config"
 	"user_management_ms/domain"
@@ -98,88 +97,31 @@ func (g *GoogleAuthService) VerifyGoogleIDToken(idToken string) (*response.Googl
 }
 
 func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
-	// validate input quickly (optional but helpful)
 	if req.Phone == "" {
 		return nil, errors.New("phone is required")
 	}
 
-	// Try to find user by email only (not email+phone) — this fixes the unreachable-case bug.
 	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-
-	// If user exists:
-	if user != nil {
-		// Case 1: If user has a phone and input phone is his and already verified
-		// If both phone and email are already verified -> do nothing, return verified status.
-		// NOTE: this code assumes you have both PhoneVerified and EmailVerified fields.
-		if user.Phone != "" && user.Phone == req.Phone && user.PhoneVerified && user.EmailVerified {
-			return &response.GoogleResponse{
-				UserId:        user.Id,
-				Email:         user.Email,
-				Phone:         user.Phone,
-				Status:        response.VERIFIED,
-				PhoneVerified: user.PhoneVerified,
-			}, nil
-		}
-		// Case 2: If user has a phone but not verified
-		// If user has a phone, and it's the same as requested phone
-		if user.Phone != "" && user.Phone == req.Phone && !user.PhoneVerified {
-			if _, err := g.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone}); err != nil {
-			}
-			return &response.GoogleResponse{
-				UserId:        user.Id,
-				Email:         user.Email,
-				Phone:         user.Phone,
-				Status:        response.UNVERIFIED,
-				PhoneVerified: user.PhoneVerified,
-			}, nil
-
-		}
-		// Case 2: User don't have a phone yet attach a phone to user
-		// If user exists, but they have no phone yet (we want to attach req.Phone)
-		if user.Phone == "" {
-			// check whether another user already uses requested phone
-			isExists, err := g.query.IsUserWithPhoneExists(g.db, req.Phone)
-			if err != nil {
-				return nil, err
-			}
-			if isExists {
-				return nil, errors.New("user with this phone already exists")
-			}
-
-			// attach phone and create phone OTP
-			if _, err := g.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone}); err != nil {
-				return nil, err
-			}
-			return &response.GoogleResponse{
-				UserId:        user.Id,
-				Email:         user.Email,
-				Phone:         req.Phone,
-				Status:        response.VERIFICATION_PENDING,
-				PhoneVerified: user.PhoneVerified,
-			}, nil
-		}
-		// Case 3: Users phone is different that what user requested
-		// If user exists but their phone is different from requested -> phone_mismatch
-		if user.Phone != "" && user.Phone != req.Phone {
-			log.Println("Case: User exists but requested phone is not user's")
-			return &response.GoogleResponse{
-				UserId: user.Id,
-				Email:  user.Email,
-				Phone:  user.Phone,
-				Status: response.PHONE_MISMATCH,
-			}, nil
-		}
-	}
-
-	// If user not found by email, return explicit error (or create a new google-user here if you want)
-	// Keep behavior explicit: currently we do not auto-create users in this flow.
 	if user == nil {
 		return nil, errors.New("user not found; please register first")
 	}
 
+	// Ordered list of cases to evaluate
+	cases := []RegistrationCase{
+		AlreadyVerifiedCase{},
+		PhoneUnverifiedCase{svc: g},
+		AttachPhoneCase{svc: g},
+		PhoneMismatchCase{},
+	}
+
+	for _, c := range cases {
+		if resp, err := c.Handle(user, req); resp != nil || err != nil {
+			return resp, err
+		}
+	}
 	// default fallback (should not be reached)
 	return nil, nil
 }
