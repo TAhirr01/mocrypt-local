@@ -50,7 +50,6 @@ func (s *Server) Start() *fiber.App {
 	contextPath := app.Group(config.Conf.Application.Server.ContextPath)
 	apiVersion := contextPath.Group(config.Conf.Application.Server.ApiVersion)
 
-	//s.configureAuthGroup(apiVersion)
 	authGroup := apiVersion.Group("/auth")
 	authGroup.Use(middleware.LoggingMiddleware(s.Logger))
 	authGroup.Post("/request-otp", middleware.RouteRateLimiter(10, 10*time.Minute), s.AuthController.RegisterRequestOTP)
@@ -73,7 +72,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/google/request-otp/:userId", s.GoogleAuthController.GoogleRequestPhoneOTP)
 	authGroup.Post("/google/verify-otp/:userId", s.GoogleAuthController.GoogleVerifyRequestOTP)
 	authGroup.Post("/google/complete-registration/:userId", s.GoogleAuthController.CompleteGoogleRegistration)
-	authGroup.Post("/google/login/verify-otp", s.GoogleAuthController.GoogleVerifyLoginRequestOtp)
+	authGroup.Post("/google/login/verify-otp/:userId", s.GoogleAuthController.GoogleVerifyLoginRequestOtp)
 
 	authGroup.Post("/register/start", middleware.AuthMiddleware(), s.WebAuthnController.RegisterStart)
 	authGroup.Post("/register/finish", middleware.AuthMiddleware(), s.WebAuthnController.RegisterFinish)
@@ -81,10 +80,3 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/login/finish/:sessionId", s.WebAuthnController.LoginFinish)
 	return app
 }
-
-//func (s *Server) configureAuthGroup(router fiber.Router) {
-//	authGroup := router.Group("/auth")
-//	//authGroup.Post("/request-otp", s.AuthController.RequestOTP)
-//	authGroup.Post("/verify-otp", s.AuthController.VerifyOTP)
-//	authGroup.Post("/complete-registration", s.AuthController.CompleteRegistration)
-//}
