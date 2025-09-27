@@ -11,7 +11,8 @@ type OTPRequestPhone struct {
 }
 
 type OTPRequestEmail struct {
-	Email string `json:"email" validate:"required,email"`
+	UserId uint   `json:"userId" validate:"required,gte=1"`
+	Email  string `json:"email" validate:"required,email"`
 }
 
 type EmailAndPhoneOTP struct {

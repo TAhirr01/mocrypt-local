@@ -12,6 +12,6 @@ type VerifyNumberOTPRequest struct {
 }
 
 type VerifyEmailOTPRequest struct {
+	UserId   uint   `json:"user_id"`
 	EmailOTP string `json:"email_otp" validate:"required"`
-	Email    string `json:"email" validate:"required,email"`
 }
