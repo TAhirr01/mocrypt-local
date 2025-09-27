@@ -14,14 +14,11 @@ type IUserCommandRepository interface {
 	Create(db *gorm.DB, entity *domain.User) (*domain.User, error)
 	Update(db *gorm.DB, entity *domain.User) error
 	Delete(db *gorm.DB, id uint) error
-	UpdateUserPasswordAndBirthDate(db *gorm.DB, email, hasPassword string, birthDate *time.Time) (*domain.User, error)
 	DeleteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error
 	SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *domain.User, emailOtp, phoneOtp string) error
 	SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error
 	SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) error
 	UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error
-	UpdateUserPhone(db *gorm.DB, email, phone, phoneOtp string, expire time.Time) (*domain.User, error)
-	UpdateUserVerifyStatus(db *gorm.DB, email string, verify bool) (*domain.User, error)
 	UpdateUserPasswordAndBirthDateById(db *gorm.DB, userId uint, hashPassword string, birthDate *time.Time) (*domain.User, error)
 	UpdateUserPhoneById(db *gorm.DB, userId uint, phone, phoneOtp string, expire time.Time) (*domain.User, error)
 }
@@ -40,16 +37,6 @@ func (u *UserCommandRepository) Update(db *gorm.DB, entity *domain.User) error {
 }
 func (u *UserCommandRepository) Delete(db *gorm.DB, id uint) error {
 	return db.Delete(&domain.User{}, id).Error
-}
-func (u *UserCommandRepository) UpdateUserPasswordAndBirthDate(db *gorm.DB, email, hashPassword string, birthDate *time.Time) (*domain.User, error) {
-	var user *domain.User
-	err := db.Where("email=?", email).First(&user).Error
-	if err != nil {
-		return nil, errors.New("user not found")
-	}
-	user.Password = hashPassword
-	user.BirthDate = birthDate
-	return user, db.Save(&user).Error
 }
 func (u *UserCommandRepository) DeleteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error {
 	user.PhoneOtp = ""
@@ -105,28 +92,6 @@ func (u *UserCommandRepository) UpdatePasskeyAfterLogin(db *gorm.DB, credID []by
 			"authenticator": auth,
 			"sign_count":    signCount,
 		}).Error
-}
-func (u *UserCommandRepository) UpdateUserPhone(db *gorm.DB, email, phone, phoneOtp string, expire time.Time) (*domain.User, error) {
-	user := domain.User{}
-	err := db.Model(&user).Where("email=?", email).First(&user).Error
-	if err != nil {
-		return nil, err
-	}
-	if phone != "" {
-		user.Phone = phone
-	}
-	user.PhoneOtp = phoneOtp
-	user.PhoneOtpExpireDate = &expire
-	return &user, db.Save(&user).Error
-}
-func (u *UserCommandRepository) UpdateUserVerifyStatus(db *gorm.DB, phone string, verify bool) (*domain.User, error) {
-	user := domain.User{}
-	err := db.Model(&user).Where("phone=?", phone).First(&user).Error
-	if err != nil {
-		return nil, err
-	}
-	user.PhoneVerified = verify
-	return &user, db.Save(&user).Error
 }
 func (u *UserCommandRepository) UpdateUserPasswordAndBirthDateById(db *gorm.DB, userId uint, hashPassword string, birthDate *time.Time) (*domain.User, error) {
 	var user *domain.User
