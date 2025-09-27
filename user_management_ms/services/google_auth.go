@@ -260,7 +260,7 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 }
 
 func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error) {
-	user, err := g.query.GetUserByEmail(g.db, req.Email)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,7 @@ func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*re
 }
 
 func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
-	user, err := g.query.GetUserByEmail(g.db, req.Email)
+	user, err := g.query.GetByID(g.db, req.UserId)
 	if user != nil && (user.Password == "" || user.BirthDate == nil) {
 		return nil, errors.New("user hasn't completed registration")
 	}
@@ -382,7 +382,7 @@ func (g *GoogleAuthService) LoginOrRegister(isNew bool, user *domain.User) (*res
 		}, nil
 	}
 	if isNew == false && user.PhoneVerified && user.Password != "" {
-		if _, err := g.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
+		if _, err := g.SendEmailLoginOtp(&request.OTPRequestEmail{UserId: user.Id}); err != nil {
 			return nil, err
 		}
 		return &response.CallBackResponse{
