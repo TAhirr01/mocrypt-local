@@ -151,14 +151,15 @@ func (ac *GoogleAuthController) GoogleVerifyRequestOTP(c *fiber.Ctx) error {
 }
 
 func (ac *GoogleAuthController) GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error {
-	email := c.Query("email")
+	userIdParam := c.Params("userId")
+	userId, _ := strconv.Atoi(userIdParam)
 	var req request.EmailOTP
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	tokens, err := ac.googleService.VerifyGoogleLoginOtp(&request.VerifyEmailOTPRequest{Email: email, EmailOTP: req.EmailOTP})
+	tokens, err := ac.googleService.VerifyGoogleLoginOtp(&request.VerifyEmailOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
