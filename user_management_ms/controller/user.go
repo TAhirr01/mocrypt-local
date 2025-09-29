@@ -32,6 +32,12 @@ var validate = validator.New()
 
 type AuthController struct {
 	userService services.IUserService
+	pin         services.IPinService
+	otp         services.IOtp
+}
+
+func NewAuthController(service services.IUserService, pin services.IPinService, otp services.IOtp) IAuthController {
+	return &AuthController{userService: service, otp: otp, pin: pin}
 }
 
 func (ac *AuthController) CheckLoginRequest(c *fiber.Ctx) error {
@@ -83,10 +89,6 @@ func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
 	})
 }
 
-func NewAuthController(service services.IUserService) IAuthController {
-	return &AuthController{userService: service}
-}
-
 func (ac *AuthController) RegisterRequestOTP(c *fiber.Ctx) error {
 
 	var req request.StartRegistration
@@ -124,7 +126,7 @@ func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	response, err := ac.userService.VerifyRegisterOTP(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
+	response, err := ac.otp.VerifyOTPs(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -164,7 +166,7 @@ func (ac *AuthController) ResendOTP(c *fiber.Ctx) error {
 	if err := validate.Struct(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
 	}
-	response, err := ac.userService.SendOTP(&req)
+	response, err := ac.otp.SendOTP(&req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
 	}
@@ -206,6 +208,7 @@ func (ac *AuthController) VerifyLoginOTP(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
+	log.Println(userId)
 	response, err := ac.userService.VerifyLoginOTP(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -276,7 +279,7 @@ func (ac *AuthController) SetPIN(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
-	if err := ac.userService.SetPIN(uint(userId), req.Pin); err != nil {
+	if err := ac.pin.SetPIN(uint(userId), req.Pin); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -295,14 +298,14 @@ func (ac *AuthController) VerifyPIN(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
 	}
 
-	valid, err := ac.userService.VerifyPIN(uint(userId), req.Pin)
+	tokens, valid, err := ac.pin.VerifyPIN(uint(userId), req.Pin)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	if !valid {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid PIN"})
 	}
 
-	return c.JSON(fiber.Map{"message": "PIN verified"})
+	return c.Status(200).JSON(tokens)
 }
