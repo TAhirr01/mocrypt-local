@@ -43,11 +43,13 @@ type service struct {
 	query   query_repository.IUserQueryRepository
 
 	// Service
+	otp            services.IOtp
 	userService    services.IUserService
 	jwtService     services.IJWTService
 	googleService  services.IGoogleAuthService
 	redisService   services.IRedisService
 	passkeyService services.IPasskeyService
+	pin            services.IPinService
 
 	// Controller
 	authController       controller.IAuthController
@@ -104,13 +106,15 @@ func (s *service) DependencyInjection() {
 	s.query = query_repository.NewUserQueryRepository()
 	s.command = command_repository.NewUserCommandRepository()
 	// NOTE: Services Injections
+	s.otp = services.NewOtpService(s.dbConnection, s.query, s.command)
+	s.pin = services.NewPinService(s.query, s.command, s.dbConnection, s.jwtService)
 	s.redisService = services.NewRedisService(s.redisClient)
-	s.userService = services.NewUserService(s.dbConnection, s.redisService, s.command, s.query, s.jwtService)
-	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.command, s.query, s.jwtService, s.redisService)
+	s.userService = services.NewUserService(s.dbConnection, s.redisService, s.otp, s.command, s.query, s.jwtService)
+	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.command, s.query, s.jwtService, s.redisService, s.otp)
 	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.command, s.query, s.redisService, s.jwtService)
 	// NOTE: Controllers Injections
-	s.authController = controller.NewAuthController(s.userService)
-	s.googleAuthController = controller.NewGoogleAuthController(s.googleService)
+	s.authController = controller.NewAuthController(s.userService, s.pin, s.otp)
+	s.googleAuthController = controller.NewGoogleAuthController(s.googleService, s.otp)
 	s.passkeyController = controller.NewPasskeyController(s.passkeyService)
 
 }
