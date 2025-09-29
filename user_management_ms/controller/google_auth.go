@@ -68,48 +68,6 @@ func (ac *GoogleAuthController) GoogleCallback(c *fiber.Ctx) error {
 		})
 	}
 	response, err := ac.googleService.LoginOrRegister(isNew, user)
-	// 4. Response based on whether it's a new user or existing
-	//if isNew {
-	//	// New user → needs to complete registration
-	//	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-	//		"user_id":   user.Id,
-	//		"status":    "new_user",
-	//		"email":     user.Email,
-	//		"google_id": user.GoogleID,
-	//	})
-	//}
-	//if isNew == false && !user.PhoneVerified {
-	//	if _, err := ac.googleService.SendPhoneVerificationOtp(&request.OTPRequestPhone{Phone: user.Phone}); err != nil {
-	//		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-	//			"error": err.Error(),
-	//		})
-	//	}
-	//	return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-	//		"user_id":            user.Id,
-	//		"status":             "existing_user",
-	//		"message":            "user already exists send to verify phone ",
-	//		"phone_verification": user.PhoneVerified,
-	//		"phone":              user.Phone,
-	//		"email":              user.Email,
-	//		"google_id":          user.GoogleID,
-	//	})
-	//}
-	//if isNew == false && user.GoogleID != "" {
-	//	if _, err := ac.googleService.SendEmailLoginOtp(&request.OTPRequestEmail{Email: user.Email}); err != nil {
-	//		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-	//			"error": err.Error(),
-	//		})
-	//	}
-	//	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-	//		"user_id":            user.Id,
-	//		"status":             "existing_user",
-	//		"message":            "user already exists send to verification ",
-	//		"phone_verification": user.PhoneVerified,
-	//		"phone":              user.Phone,
-	//		"email":              user.Email,
-	//		"google_id":          user.GoogleID,
-	//	})
-	//}
 	return c.Status(fiber.StatusOK).JSON(response)
 }
 
