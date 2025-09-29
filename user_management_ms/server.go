@@ -1,7 +1,6 @@
 package main
 
 import (
-	"time"
 	"user_management_ms/config"
 	"user_management_ms/controller"
 	"user_management_ms/middleware"
@@ -44,15 +43,13 @@ func (s *Server) Start() *fiber.App {
 		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 	}))
 
-	app.Use(middleware.GlobalRateLimiter())
-
 	// NOTE: Define API paths (context path and grouping by version)
 	contextPath := app.Group(config.Conf.Application.Server.ContextPath)
 	apiVersion := contextPath.Group(config.Conf.Application.Server.ApiVersion)
 
 	authGroup := apiVersion.Group("/auth")
 	authGroup.Use(middleware.LoggingMiddleware(s.Logger))
-	authGroup.Post("/request-otp", middleware.RouteRateLimiter(10, 10*time.Minute), s.AuthController.RegisterRequestOTP)
+	authGroup.Post("/request-otp", s.AuthController.RegisterRequestOTP)
 	authGroup.Post("/verify-otp/:userId", s.AuthController.VerifyRegisterOTP)
 	authGroup.Post("/resend-otp", s.AuthController.ResendOTP)
 	authGroup.Post("/complete-registration/:userId", s.AuthController.CompleteRegistration)
@@ -62,7 +59,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Get("/setup-2fa", middleware.AuthMiddleware(), s.AuthController.Setup2FA)
 	authGroup.Post("/verify-2fa", middleware.AuthMiddleware(), s.AuthController.Verify2FA)
 	authGroup.Post("/pin/set/:userId", s.AuthController.SetPIN)
-	authGroup.Post("/pin/verify:userId", s.AuthController.VerifyPIN)
+	authGroup.Post("/pin/verify/:userId", s.AuthController.VerifyPIN)
 	authGroup.Post("/qr", s.AuthController.QrLoginRequest)
 	authGroup.Post("/qr/approve", middleware.AuthMiddleware(), s.AuthController.ApproveLoginRequest)
 	authGroup.Post("/qr/:sessionId/status", s.AuthController.CheckLoginRequest)
