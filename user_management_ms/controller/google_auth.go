@@ -21,10 +21,11 @@ type IGoogleAuthController interface {
 
 type GoogleAuthController struct {
 	googleService services.IGoogleAuthService
+	otp           services.IOtp
 }
 
-func NewGoogleAuthController(googleService services.IGoogleAuthService) IGoogleAuthController {
-	return &GoogleAuthController{googleService: googleService}
+func NewGoogleAuthController(googleService services.IGoogleAuthService, otp services.IOtp) IGoogleAuthController {
+	return &GoogleAuthController{googleService: googleService, otp: otp}
 }
 
 func (ac *GoogleAuthController) GoogleLogin(c *fiber.Ctx) error {
@@ -99,7 +100,7 @@ func (ac *GoogleAuthController) GoogleVerifyRequestOTP(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	res, err := ac.googleService.VerifyPhoneOTP(&request.VerifyNumberOTPRequest{UserId: uint(userId), PhoneOTP: req.PhoneOTP})
+	res, err := ac.otp.VerifyPhoneOTP(&request.VerifyNumberOTPRequest{UserId: uint(userId), PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),

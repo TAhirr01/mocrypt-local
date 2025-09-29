@@ -1,11 +1,15 @@
-package services
+package strategies
 
 import (
 	"errors"
-	"log"
 	"user_management_ms/domain"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
+	"user_management_ms/repository/command_repository"
+	"user_management_ms/repository/query_repository"
+	"user_management_ms/services_not_used_inhandlers"
+
+	"gorm.io/gorm"
 )
 
 type RegistrationCase interface {
@@ -32,12 +36,12 @@ func (c AlreadyVerifiedCase) Handle(user *domain.User, req *request.StartGoogleR
 // PhoneUnverifiedCase  2.Phone exists but unverified
 
 type PhoneUnverifiedCase struct {
-	svc *GoogleAuthService
+	otp services_not_used_inhandlers.IOtp
 }
 
 func (c PhoneUnverifiedCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
 	if user.Phone != "" && user.Phone == req.Phone && !user.PhoneVerified {
-		_, _ = c.svc.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone})
+		_, _ = c.otp.SendPhoneOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone})
 		return &response.GoogleResponse{
 			UserId:        user.Id,
 			Email:         user.Email,
@@ -49,21 +53,24 @@ func (c PhoneUnverifiedCase) Handle(user *domain.User, req *request.StartGoogleR
 	return nil, nil
 }
 
-// 3. User has no phone → attach new phone
+// 3. User has no phone attach new phone
 type AttachPhoneCase struct {
-	svc *GoogleAuthService
+	query   query_repository.IUserQueryRepository
+	command command_repository.IUserCommandRepository
+	db      *gorm.DB
+	otp     services_not_used_inhandlers.IOtp
 }
 
 func (c AttachPhoneCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
 	if user.Phone == "" {
-		isExists, err := c.svc.query.IsUserWithPhoneExists(c.svc.db, req.Phone)
+		isExists, err := c.query.IsUserWithPhoneExists(c.db, req.Phone)
 		if err != nil {
 			return nil, err
 		}
 		if isExists {
-			return nil, errors.New("user with this phone already exists")
+			return nil, errors.New(string(response.PHONE_EXISTS))
 		}
-		_, err = c.svc.SendPhoneVerificationOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone})
+		_, err = c.otp.SendPhoneOtp(&request.OTPRequestPhone{UserId: user.Id, Phone: req.Phone})
 		if err != nil {
 			return nil, err
 		}
@@ -83,7 +90,6 @@ type PhoneMismatchCase struct{}
 
 func (c PhoneMismatchCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
 	if user.Phone != "" && user.Phone != req.Phone {
-		log.Println("Case: User exists but requested phone is not user's")
 		return &response.GoogleResponse{
 			UserId: user.Id,
 			Email:  user.Email,
