@@ -1,1 +1,1 @@
-1)i have changed google register to handle search by userId but google login yet hasn't changed change it to 
+1)i have changed google register to handle search by userId but google login yet hasn't changed change it to :done
