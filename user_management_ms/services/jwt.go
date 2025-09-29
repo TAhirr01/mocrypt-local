@@ -5,6 +5,7 @@ import (
 	"time"
 	"user_management_ms/domain"
 	"user_management_ms/dtos/response"
+	"user_management_ms/enums/server"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -33,12 +34,12 @@ func NewJWTService(secret []byte, issuer string, accessTtl time.Duration, refres
 
 func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 	if len(j.Secret) == 0 {
-		return nil, errors.New("JWT secret is not configured")
+		return nil, errors.New(server.NO_SECRET)
 	}
 
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+			return nil, errors.New(server.UNEXPECTED_METHOD)
 		}
 		return j.Secret, nil
 	})
@@ -47,7 +48,7 @@ func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 		return nil, err
 	}
 	if !token.Valid {
-		return nil, errors.New("invalid token")
+		return nil, errors.New(server.INVALID_TOKEN)
 	}
 	return token, nil
 }
@@ -55,7 +56,7 @@ func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 func (j *JWTService) GetClaims(token *jwt.Token) (jwt.MapClaims, error) {
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || claims["sub"] == nil {
-		return nil, errors.New("No claims")
+		return nil, errors.New(server.NO_CLAIMS)
 	}
 	return claims, nil
 }
