@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 	"user_management_ms/config"
-	"user_management_ms/domain"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
 	"user_management_ms/repository/command_repository"
@@ -22,16 +21,12 @@ import (
 
 type IUserService interface {
 	RegisterRequestOTP(request *request.StartRegistration) (*response.RegisterResponse, error)
-	VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error)
-	CompleteRegistration(registerRequest *request.CompleteRegisterRequest) (*response.Tokens, error)
-	SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error)
-	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error)
+	CompleteRegistration(registerRequest *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error)
+	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.AfterLoginVerification, error)
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
 	Setup2FA(userId uint) (*response.TwoFASetupResponse, error)
 	Verify2FA(userId uint, code string) (bool, error)
-	SetPIN(userId uint, pin string) error
-	VerifyPIN(userId uint, pin string) (bool, error)
 	RequestLoginQr() ([]byte, string, error)
 	ApproveLoginQr(userId uint, sessionId string) error
 	CheckLoginQr(sessionId string) (*response.QrLoginResponse, error)
@@ -42,144 +37,43 @@ type UserService struct {
 	redis   IRedisService
 	command command_repository.IUserCommandRepository
 	query   query_repository.IUserQueryRepository
+	otp     IOtp
 	jwt     IJWTService
 }
 
-func NewUserService(db *gorm.DB, redis IRedisService, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwt IJWTService) IUserService {
-	return &UserService{db: db, redis: redis, command: command, query: query, jwt: jwt}
+func NewUserService(db *gorm.DB, redis IRedisService, otp IOtp, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwt IJWTService) IUserService {
+	return &UserService{db: db, redis: redis, otp: otp, command: command, query: query, jwt: jwt}
 }
 
 func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*response.RegisterResponse, error) {
 	user, err := u.query.GetUserWithEmailAndPhone(u.db, req.Email, req.Phone)
-	emailOtp := util.GenerateOTP()
-	phoneOtp := util.GenerateOTP()
-	t := time.Now().Add(5 * time.Minute)
+
 	if err == nil {
-		// User mövcuddur
-		if user.EmailVerified && user.PhoneVerified && user.Password == "" {
-			// User OTP verified amma registration tamamlanmayıb
-			return &response.RegisterResponse{
-				UserId:        user.Id,
-				UserType:      user.UserType,
-				Email:         user.Email,
-				Phone:         user.Phone,
-				EmailVerified: user.EmailVerified,
-				PhoneVerified: user.PhoneVerified,
-				Completed:     false,
-				Status:        "verified",
-			}, nil
-		} else if user.EmailVerified && user.PhoneVerified && user.Password != "" {
-			// User OTP verified və password mövcuddur → login lazımdır
-			return &response.RegisterResponse{
-				UserId:        user.Id,
-				UserType:      user.UserType,
-				Email:         user.Email,
-				Phone:         user.Phone,
-				Status:        "verified",
-				EmailVerified: user.EmailVerified,
-				PhoneVerified: user.PhoneVerified,
-				Completed:     true,
-			}, nil
-		} else if !(user.EmailVerified && user.PhoneVerified) {
-			// User mövcuddur amma OTP verified deyil → OTP göndərilməlidir
-			if err := u.command.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOtp, phoneOtp); err != nil {
-				return nil, err
+		cases := []UserRegisterCases{
+			HasntCompleted{},
+			SendLogin{},
+			NeedsVerification{otp: u.otp},
+			SetPin{},
+		}
+		for _, c := range cases {
+			if resp, err := c.Handle(user, req); resp != nil || err != nil {
+				return resp, err
 			}
-			if err := SendVerifyEmailAndPhoneNumberEvent(
-				&request.VerifyEmailEvent{Email: user.Email, EmailOTP: emailOtp},
-				&request.VerifyPhoneEvent{Phone: user.Phone, PhoneOTP: phoneOtp},
-			); err != nil {
-				return nil, err
-			}
-			return &response.RegisterResponse{
-				UserId:        user.Id,
-				UserType:      user.UserType,
-				Email:         user.Email,
-				Phone:         user.Phone,
-				EmailVerified: user.EmailVerified,
-				PhoneVerified: user.PhoneVerified,
-				Completed:     false,
-				Status:        "verification_pending",
-			}, nil
 		}
 	} else {
-		existingUser, err := u.query.GetUserByEmailOrPhone(u.db, req.Email, req.Phone)
-		if existingUser != nil && err == nil {
-			return &response.RegisterResponse{
-				UserId:   existingUser.Id,
-				UserType: existingUser.UserType,
-				Email:    existingUser.Email,
-				Phone:    existingUser.Phone,
-				Status:   "exists",
-			}, errors.New("user with this email or phone number already exists")
+		cases := []UserRegisterCases{
+			ExistingUser{query: u.query, command: u.command, otp: u.otp, db: u.db},
 		}
-		// User yoxdur → yeni user yarat
-		newUser := &domain.User{
-			UserType:           req.UserType,
-			Email:              req.Email,
-			Phone:              req.Phone,
-			EmailOtp:           emailOtp,
-			PhoneOtp:           phoneOtp,
-			EmailOtpExpireDate: &t,
-			PhoneOtpExpireDate: &t,
+		for _, c := range cases {
+			if resp, err := c.Handle(user, req); resp != nil || err != nil {
+				return resp, err
+			}
 		}
-		if _, err := u.command.Create(u.db, newUser); err != nil {
-			return nil, err
-		}
-		if err := SendVerifyEmailAndPhoneNumberEvent(
-			&request.VerifyEmailEvent{Email: newUser.Email},
-			&request.VerifyPhoneEvent{Phone: newUser.Phone},
-		); err != nil {
-			return nil, err
-		}
-
-		return &response.RegisterResponse{
-			UserId:        newUser.Id,
-			UserType:      newUser.UserType,
-			Email:         newUser.Email,
-			Phone:         newUser.Phone,
-			Status:        "created",
-			EmailVerified: false,
-			PhoneVerified: false,
-			Completed:     false,
-		}, nil
 	}
-
-	// Heç bir şərt uyğun gəlmirsə (nəzəri olaraq mümkün deyil)
 	return nil, errors.New("unable to process OTP request")
 }
 
-func (u *UserService) VerifyRegisterOTP(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error) {
-	user, err := u.query.GetByID(u.db, otRequest.UserId)
-	if err != nil || user == nil {
-		return nil, errors.New("user not found")
-	}
-
-	if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
-		return nil, errors.New("email OTP invalid or expired")
-	}
-
-	if time.Now().After(*user.PhoneOtpExpireDate) || user.PhoneOtp != otRequest.PhoneOTP {
-		return nil, errors.New("phone OTP invalid or expired")
-	}
-
-	user.PhoneVerified = true
-	user.EmailVerified = true
-	if err := u.command.DeleteUserOtpAndExpireDate(u.db, user); err != nil {
-		return nil, err
-	}
-
-	return &response.OTPResponse{
-		UserId:        user.Id,
-		Email:         user.Email,
-		Phone:         user.Phone,
-		Status:        "otp_verified",
-		EmailVerified: user.EmailVerified,
-		PhoneVerified: user.PhoneVerified,
-	}, nil
-}
-
-func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest) (*response.Tokens, error) {
+func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error) {
 	// 1. Check if user exists
 	user, err := u.query.GetByID(u.db, req.UserId)
 	if err != nil {
@@ -211,26 +105,9 @@ func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest)
 		return nil, err
 	}
 
-	// 5. Generate tokens
-	tokens, err := u.jwt.GenerateTokens(user)
-	if err != nil {
-		return nil, err
-	}
-
-	return &response.Tokens{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
-	}, nil
-}
-
-func (u *UserService) SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error) {
-	if err := u.command.SaveUserOTPs(u.db, req.Email, req.Phone, 5*time.Minute); err != nil {
-		return nil, err
-	}
-	return &response.SendOTPResponse{
-		Email:  req.Email,
-		Phone:  req.Phone,
-		Status: "otp_sent",
+	return &response.AfterRegisterPassword{
+		UserId: user.Id,
+		Status: response.SET_PIN,
 	}, nil
 }
 
@@ -270,11 +147,12 @@ func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.Logi
 	}, nil
 }
 
-func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.Tokens, error) {
+func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.AfterLoginVerification, error) {
 	user, err := u.query.GetByID(u.db, otRequest.UserId)
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
+	log.Println(user)
 
 	if user.EmailOtpExpireDate != nil && user.PhoneOtpExpireDate != nil {
 		if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
@@ -290,39 +168,33 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 		} else {
 			return nil, errors.New("user needs to be verified")
 		}
-
 	}
 
 	if err := u.command.DeleteUserOtpAndExpireDate(u.db, user); err != nil {
 		return nil, err
 	}
 
-	// OTP-lər doğru → token yarat
-	tokens, err := u.jwt.GenerateTokens(user)
-	if err != nil {
-		return nil, err
+	if user.PINHash != "" {
+		return &response.AfterLoginVerification{
+			UserId: user.Id,
+			Status: response.VERIFY_PIN,
+		}, nil
+	} else {
+		return &response.AfterLoginVerification{
+			UserId: user.Id,
+			Status: response.SET_PIN,
+		}, nil
 	}
-
-	// Refresh token Redis-ə set edilir
-	if err := u.redis.SetRefreshToken(user.Id, tokens.RefreshToken); err != nil {
-		log.Println("Failed to store refresh token:", err)
-	}
-
-	return &response.Tokens{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
-	}, nil
 }
 
 func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error) {
-	log.Println("Someone tries to refresh access token")
 	if req.RefreshToken == "" {
 		return nil, errors.New("empty refresh token")
 	}
 
 	token, err := u.jwt.ParseJWT(req.RefreshToken)
 	if err != nil || token == nil {
-		return nil, err
+		return nil, errors.New("invalid refresh token")
 	}
 
 	claims, err := u.jwt.GetClaims(token)
@@ -333,12 +205,10 @@ func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Toke
 
 	storedToken, err := u.redis.GetRefreshToken(userID)
 	if err != nil {
-		log.Println("Redis token not found:", err)
 		return nil, errors.New("refresh token not found or expired")
 	}
 
 	if storedToken != req.RefreshToken {
-		log.Println("Provided:", req.RefreshToken, "Stored:", storedToken)
 		return nil, errors.New("refresh token does not equal to stored token")
 	}
 
@@ -355,11 +225,9 @@ func (u *UserService) RefreshToken(req *request.RefreshTokenReq) (*response.Toke
 	u.redis.DelRefreshToken(userID)
 
 	if err := u.redis.SetRefreshToken(userID, newRefreshToken); err != nil {
-		log.Println("Failed to store new refresh token")
 		return nil, errors.New("could not store new refresh token")
 	}
 
-	log.Println("Successfully sent a new refresh token")
 	return &response.Tokens{
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
@@ -376,7 +244,7 @@ func (u *UserService) Setup2FA(userId uint) (*response.TwoFASetupResponse, error
 	}
 
 	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      "Mocrypt Security Issuer",
+		Issuer:      config.Conf.Application.Security.Issuer,
 		AccountName: user.Email,
 	})
 	if err != nil {
@@ -413,38 +281,6 @@ func (u *UserService) Verify2FA(userId uint, code string) (bool, error) {
 		}
 	}
 	return valid, nil
-}
-
-func (u *UserService) SetPIN(userId uint, pin string) error {
-	user, err := u.query.GetByID(u.db, userId)
-	if err != nil {
-		return err
-	}
-
-	hashed, err := util.HashPIN(pin)
-	if err != nil {
-		return err
-	}
-
-	user.PINHash = hashed
-	return u.command.Update(u.db, user)
-}
-
-func (u *UserService) VerifyPIN(userId uint, pin string) (bool, error) {
-	user, err := u.query.GetByID(u.db, userId)
-	if err != nil {
-		return false, err
-	}
-
-	if user.PINHash == "" {
-		return false, errors.New("PIN not set")
-	}
-	valid := util.VerifyPIN(pin, user.PINHash)
-	if !valid {
-		return false, errors.New("invalid PIN")
-	}
-
-	return true, nil
 }
 
 func (u *UserService) RequestLoginQr() ([]byte, string, error) {
