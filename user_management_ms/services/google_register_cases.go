@@ -1,4 +1,4 @@
-package strategies
+package services
 
 import (
 	"errors"
@@ -7,7 +7,6 @@ import (
 	"user_management_ms/dtos/response"
 	"user_management_ms/repository/command_repository"
 	"user_management_ms/repository/query_repository"
-	"user_management_ms/services_not_used_inhandlers"
 
 	"gorm.io/gorm"
 )
@@ -21,7 +20,7 @@ type AlreadyVerifiedCase struct {
 }
 
 func (c AlreadyVerifiedCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
-	if user.Phone != "" && user.Phone == req.Phone && user.PhoneVerified && user.EmailVerified {
+	if user.Phone != "" && user.Phone == req.Phone && user.PhoneVerified && user.EmailVerified && user.PINHash != "" {
 		return &response.GoogleResponse{
 			UserId:        user.Id,
 			Email:         user.Email,
@@ -36,7 +35,7 @@ func (c AlreadyVerifiedCase) Handle(user *domain.User, req *request.StartGoogleR
 // PhoneUnverifiedCase  2.Phone exists but unverified
 
 type PhoneUnverifiedCase struct {
-	otp services_not_used_inhandlers.IOtp
+	otp IOtp
 }
 
 func (c PhoneUnverifiedCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
@@ -58,7 +57,7 @@ type AttachPhoneCase struct {
 	query   query_repository.IUserQueryRepository
 	command command_repository.IUserCommandRepository
 	db      *gorm.DB
-	otp     services_not_used_inhandlers.IOtp
+	otp     IOtp
 }
 
 func (c AttachPhoneCase) Handle(user *domain.User, req *request.StartGoogleRegistration) (*response.GoogleResponse, error) {
