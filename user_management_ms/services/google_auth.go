@@ -11,7 +11,6 @@ import (
 	"user_management_ms/dtos/response"
 	"user_management_ms/repository/command_repository"
 	"user_management_ms/repository/query_repository"
-	"user_management_ms/util"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
@@ -26,12 +25,9 @@ type IGoogleAuthService interface {
 	VerifyGoogleIDToken(idToken string) (*response.GoogleUser, error)
 	FindUserByGoogleID(id string) (*domain.User, error)
 	StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error)
-	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error)
-	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error)
-	SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error)
-	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error)
+	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.AfterRegisterPassword, error)
+	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.AfterLoginVerification, error)
 	CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error)
-	SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error)
 	LoginOrRegister(isNew bool, user *domain.User) (*response.CallBackResponse, error)
 }
 
@@ -41,12 +37,12 @@ type GoogleAuthService struct {
 	jwt       IJWTService
 	command   command_repository.IUserCommandRepository
 	query     query_repository.IUserQueryRepository
-
-	redis IRedisService
+	otp       IOtp
+	redis     IRedisService
 }
 
-func NewGoogleAuthService(db *gorm.DB, oauthConf *oauth2.Config, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwtService IJWTService, rdb IRedisService) IGoogleAuthService {
-	return &GoogleAuthService{oauthConf: oauthConf, query: query, command: command, jwt: jwtService, db: db, redis: rdb}
+func NewGoogleAuthService(db *gorm.DB, oauthConf *oauth2.Config, command command_repository.IUserCommandRepository, query query_repository.IUserQueryRepository, jwtService IJWTService, rdb IRedisService, otp IOtp) IGoogleAuthService {
+	return &GoogleAuthService{oauthConf: oauthConf, otp: otp, query: query, command: command, jwt: jwtService, db: db, redis: rdb}
 }
 func (g *GoogleAuthService) LoginGoogle(state string) string {
 	url := g.oauthConf.AuthCodeURL(state)
@@ -112,8 +108,8 @@ func (g *GoogleAuthService) StartGoogleRegistration(req *request.StartGoogleRegi
 	// Ordered list of cases to evaluate
 	cases := []RegistrationCase{
 		AlreadyVerifiedCase{},
-		PhoneUnverifiedCase{svc: g},
-		AttachPhoneCase{svc: g},
+		PhoneUnverifiedCase{otp: g.otp},
+		AttachPhoneCase{otp: g.otp, command: g.command, query: g.query, db: g.db},
 		PhoneMismatchCase{},
 	}
 
@@ -134,30 +130,7 @@ func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) 
 	return user, nil
 }
 
-func (g *GoogleAuthService) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error) {
-	user, err := g.query.GetByID(g.db, req.UserId)
-	if err != nil {
-		return nil, err
-	}
-	if user.PhoneOtp != req.PhoneOTP || time.Now().After(*user.PhoneOtpExpireDate) {
-		return nil, errors.New("invalid or expired OTP")
-	}
-	user.PhoneVerified = true
-	user.PhoneOtp = ""
-	user.PhoneOtpExpireDate = nil
-
-	if err := g.command.Update(g.db, user); err != nil {
-		return nil, err
-	}
-	return &response.OTPResponsePhone{
-		Phone:         user.Phone,
-		PhoneVerified: user.PhoneVerified,
-		Status:        "otp_verified",
-		Message:       "Completion of registration is needed ",
-	}, nil
-}
-
-func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.Tokens, error) {
+func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.AfterRegisterPassword, error) {
 	// 1. Check if user exists
 	user, err := g.query.GetByID(g.db, req.UserId)
 	if err != nil {
@@ -189,41 +162,13 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 		return nil, err
 	}
 
-	// 5. Generate tokens
-	tokens, err := g.jwt.GenerateTokens(user)
-	if err != nil {
-		return nil, err
-	}
-
-	return &response.Tokens{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
+	return &response.AfterRegisterPassword{
+		UserId: user.Id,
+		Status: response.SET_PIN,
 	}, nil
 }
 
-func (g *GoogleAuthService) SendEmailLoginOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error) {
-	user, err := g.query.GetByID(g.db, req.UserId)
-	if err != nil {
-		return nil, err
-	}
-	otp := util.GenerateOTP()
-	expire := time.Now().Add(5 * time.Minute)
-	user.EmailOtp = otp
-	user.EmailOtpExpireDate = &expire
-	if err := g.command.Update(g.db, user); err != nil {
-		return nil, err
-	}
-	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: otp}); err != nil {
-		return nil, err
-	}
-	return &response.OTPResponseEmail{
-		Email:   req.Email,
-		Status:  "otp_sent",
-		Message: "Email OTP sent",
-	}, nil
-}
-
-func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.Tokens, error) {
+func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.AfterLoginVerification, error) {
 	user, err := g.query.GetByID(g.db, req.UserId)
 	if user != nil && (user.Password == "" || user.BirthDate == nil) {
 		return nil, errors.New("user hasn't completed registration")
@@ -239,13 +184,9 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
-	tokens, err := g.jwt.GenerateTokens(user)
-	if err != nil {
-		return nil, err
-	}
-	return &response.Tokens{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
+	return &response.AfterLoginVerification{
+		UserId: user.Id,
+		Status: response.VERIFY_PIN,
 	}, nil
 }
 
@@ -278,29 +219,6 @@ func (g *GoogleAuthService) CreteNewGoogleUser(email, googleId string) (*domain.
 	return nil, false, err
 }
 
-func (g *GoogleAuthService) SendPhoneVerificationOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error) {
-	user, err := g.query.GetByID(g.db, req.UserId)
-	if err != nil {
-		return nil, err
-	}
-	otp := util.GenerateOTP()
-	expire := time.Now().Add(5 * time.Minute)
-	user.Phone = req.Phone
-	user.PhoneOtp = otp
-	user.PhoneOtpExpireDate = &expire
-	if err := g.command.Update(g.db, user); err != nil {
-		return nil, err
-	}
-	if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{Phone: req.Phone, PhoneOTP: otp}); err != nil {
-		return nil, err
-	}
-	return &response.OTPResponsePhone{
-		Phone:   req.Phone,
-		Status:  "otp_sent",
-		Message: "Email OTP sent",
-	}, nil
-}
-
 func (g *GoogleAuthService) LoginOrRegister(isNew bool, user *domain.User) (*response.CallBackResponse, error) {
 	if isNew {
 		// New user → needs to complete registration
@@ -324,7 +242,7 @@ func (g *GoogleAuthService) LoginOrRegister(isNew bool, user *domain.User) (*res
 		}, nil
 	}
 	if isNew == false && user.PhoneVerified && user.Password != "" {
-		if _, err := g.SendEmailLoginOtp(&request.OTPRequestEmail{UserId: user.Id}); err != nil {
+		if _, err := g.otp.SendEmailOtp(&request.OTPRequestEmail{UserId: user.Id}); err != nil {
 			return nil, err
 		}
 		return &response.CallBackResponse{
