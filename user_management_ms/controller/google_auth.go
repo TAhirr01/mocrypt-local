@@ -17,6 +17,7 @@ type IGoogleAuthController interface {
 	CompleteGoogleRegistration(c *fiber.Ctx) error
 	GoogleVerifyRequestOTP(c *fiber.Ctx) error
 	GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error
+	ResendOTP(c *fiber.Ctx) error
 }
 
 type GoogleAuthController struct {
@@ -137,6 +138,18 @@ func (ac *GoogleAuthController) CompleteGoogleRegistration(c *fiber.Ctx) error {
 		})
 	}
 	res, err := ac.googleService.CompleteGoogleRegistration(&request.CompleteGoogleRegistration{UserId: uint(userId), BirthDate: compete.BirthDate, Password: compete.Password})
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	return c.Status(fiber.StatusOK).JSON(res)
+}
+
+func (ac *GoogleAuthController) ResendOTP(c *fiber.Ctx) error {
+	data := c.Params("userId")
+	userId, _ := strconv.Atoi(data)
+	res, err := ac.otp.ResendGoogleLoginOtp(uint(userId))
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
