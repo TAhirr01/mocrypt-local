@@ -5,9 +5,15 @@ import (
 	"time"
 	"user_management_ms/domain"
 	"user_management_ms/dtos/response"
-	"user_management_ms/enums/server"
 
 	"github.com/golang-jwt/jwt/v5"
+)
+
+const (
+	NO_SECRET         = "no secret"
+	UNEXPECTED_METHOD = "unexpected_method"
+	INVALID_TOKEN     = "invalid token"
+	NO_CLAIMS         = "no claims"
 )
 
 type IJWTService interface {
@@ -34,12 +40,12 @@ func NewJWTService(secret []byte, issuer string, accessTtl time.Duration, refres
 
 func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 	if len(j.Secret) == 0 {
-		return nil, errors.New(server.NO_SECRET)
+		return nil, errors.New(NO_SECRET)
 	}
 
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New(server.UNEXPECTED_METHOD)
+			return nil, errors.New(UNEXPECTED_METHOD)
 		}
 		return j.Secret, nil
 	})
@@ -48,7 +54,7 @@ func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 		return nil, err
 	}
 	if !token.Valid {
-		return nil, errors.New(server.INVALID_TOKEN)
+		return nil, errors.New(INVALID_TOKEN)
 	}
 	return token, nil
 }
@@ -56,7 +62,7 @@ func (j *JWTService) ParseJWT(tokenStr string) (*jwt.Token, error) {
 func (j *JWTService) GetClaims(token *jwt.Token) (jwt.MapClaims, error) {
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || claims["sub"] == nil {
-		return nil, errors.New(server.NO_CLAIMS)
+		return nil, errors.New(NO_CLAIMS)
 	}
 	return claims, nil
 }
