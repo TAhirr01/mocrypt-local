@@ -112,7 +112,7 @@ func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest)
 }
 
 func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error) {
-	user, err := u.query.GetUserWithEmailAndPhone(u.db, req.Email, req.Phone)
+	user, err := u.query.GetCompletedUsersByEmailAndPhone(u.db, req.Email, req.Phone)
 	if err != nil {
 		return nil, err
 	}
