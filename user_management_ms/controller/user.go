@@ -182,11 +182,6 @@ func (ac *AuthController) LoginLocal(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
 	response, err := ac.userService.LoginLocal(&req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
