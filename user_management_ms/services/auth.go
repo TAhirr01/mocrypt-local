@@ -68,21 +68,18 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 }
 
 func (u *UserService) AddPasswordBirthdate(req *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error) {
-	// 1. Check if user exists
 	user, err := u.query.GetByID(u.db, req.UserId)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Ensure phone is verified
-	if !user.PhoneVerified {
-		return nil, errors.New("phone number not verified, complete phone verification first")
+	if !(user.PhoneVerified && user.EmailVerified) {
+		return nil, errors.New("email or phone number not verified")
 	}
 	if user.Password != "" {
 		return nil, errors.New("registration already completed")
 	}
 
-	// 3. Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -129,7 +126,6 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
-	log.Println(user)
 
 	if user.EmailOtpExpireDate != nil && user.PhoneOtpExpireDate != nil {
 		if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
