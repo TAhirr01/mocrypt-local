@@ -115,34 +115,3 @@ func (u SetPin) Handle(user *domain.User, req *request.StartRegistration) (*resp
 	}
 	return nil, nil
 }
-
-//type CreateUser struct {
-//	command command_repository.IUserCommandRepository
-//	otp     IOtp
-//	db      *gorm.DB
-//}
-//
-//func (u CreateUser) Handle(user *domain.User, req *request.StartRegistration) (*response.RegisterResponse, error) {
-//	newUser := &domain.User{
-//		UserType: req.UserType,
-//		Email:    req.Email,
-//		Phone:    req.Phone,
-//	}
-//	if _, err := u.command.Create(u.db, newUser); err != nil {
-//		return nil, err
-//	}
-//	sendOTP, err := u.otp.SendOTP(&request.OTPRequest{Email: req.Email, Phone: req.Phone})
-//	if err != nil {
-//		return nil, err
-//	}
-//	return &response.RegisterResponse{
-//		UserId:        newUser.Id,
-//		UserType:      newUser.UserType,
-//		Email:         sendOTP.Email,
-//		Phone:         sendOTP.Phone,
-//		Status:        "created",
-//		EmailVerified: false,
-//		PhoneVerified: false,
-//		Completed:     false,
-//	}, nil
-//}
