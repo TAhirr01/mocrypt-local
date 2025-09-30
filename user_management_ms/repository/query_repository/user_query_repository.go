@@ -51,9 +51,11 @@ func (u *UserQueryRepository) GetUserByEmailOrPhone(db *gorm.DB, email, phone st
 }
 func (u *UserQueryRepository) GetCompletedUsersByEmailAndPhone(db *gorm.DB, email string, phone string) (*domain.User, error) {
 	var user domain.User
-	db.Where("email = ? AND phone = ? AND password is not null", email, phone).First(&user)
-	if user.Password == "" {
-		return nil, errors.New("user is not completed")
+	err := db.Where("email = ? AND phone = ? AND password !=? AND pin_hash is not null", email, phone, "").First(&user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
 	}
 	return &user, nil
 }
