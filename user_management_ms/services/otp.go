@@ -18,6 +18,8 @@ type IOtp interface {
 	SendPhoneOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error)
 	SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error)
 	VerifyOTPs(otRequest *request.VerifyOTPRequest) (*response.OTPResponse, error)
+	ResendRegisterOtp(req *request.OTPRequest) (*response.SendOTPResponse, error)
+	ResendGoogleLoginOtp(userId uint) (*response.OTPResponseEmail, error)
 }
 
 type Otp struct {
@@ -69,9 +71,11 @@ func (o *Otp) SendEmailOtp(req *request.OTPRequestEmail) (*response.OTPResponseE
 		return nil, err
 	}
 	return &response.OTPResponseEmail{
-		Email:   req.Email,
-		Status:  "otp_sent",
-		Message: "Email OTP sent",
+		UserId:        user.Id,
+		EmailVerified: user.EmailVerified,
+		Email:         req.Email,
+		Status:        "otp_sent",
+		Message:       "Email OTP sent",
 	}, nil
 }
 
@@ -84,6 +88,34 @@ func (o *Otp) SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error
 		Phone:  req.Phone,
 		Status: "otp_sent",
 	}, nil
+}
+
+func (o *Otp) ResendRegisterOtp(req *request.OTPRequest) (*response.SendOTPResponse, error) {
+	_, err := o.query.GetUserWithEmailAndPhone(o.db, req.Email, req.Phone)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+	}
+	res, err := o.SendOTP(req)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (o *Otp) ResendGoogleLoginOtp(userId uint) (*response.OTPResponseEmail, error) {
+	user, err := o.query.GetByID(o.db, userId)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+	}
+	res, err := o.SendEmailOtp(&request.OTPRequestEmail{UserId: userId, Email: user.Email})
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (o *Otp) SendPhoneOtp(req *request.OTPRequestPhone) (*response.OTPResponsePhone, error) {
@@ -103,9 +135,11 @@ func (o *Otp) SendPhoneOtp(req *request.OTPRequestPhone) (*response.OTPResponseP
 		return nil, err
 	}
 	return &response.OTPResponsePhone{
-		Phone:   req.Phone,
-		Status:  "otp_sent",
-		Message: "Email OTP sent",
+		UserId:        user.Id,
+		PhoneVerified: user.PhoneVerified,
+		Phone:         req.Phone,
+		Status:        "otp_sent",
+		Message:       "Email OTP sent",
 	}, nil
 }
 
