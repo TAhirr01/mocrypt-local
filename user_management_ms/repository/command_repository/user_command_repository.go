@@ -17,7 +17,7 @@ type IUserCommandRepository interface {
 	DeleteUserOtpAndExpireDate(db *gorm.DB, user *domain.User) error
 	SetUserEmailPhoneOtpAndExpireDates(db *gorm.DB, user *domain.User, emailOtp, phoneOtp string) error
 	SavePasskey(db *gorm.DB, authBytes []byte, userID uint, cred *webauthn.Credential) error
-	SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) error
+	SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) (string, string, error)
 	UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error
 	UpdateUserPasswordAndBirthDateById(db *gorm.DB, userId uint, hashPassword string, birthDate *time.Time) (*domain.User, error)
 	UpdateUserPhoneById(db *gorm.DB, userId uint, phone, phoneOtp string, expire time.Time) (*domain.User, error)
@@ -71,12 +71,12 @@ func (u *UserCommandRepository) SavePasskey(db *gorm.DB, authBytes []byte, userI
 	}
 	return nil
 }
-func (u *UserCommandRepository) SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) error {
+func (u *UserCommandRepository) SaveUserOTPs(db *gorm.DB, email string, phone string, duration time.Duration) (string, string, error) {
 	otpEmail := util.GenerateOTP()
 	otpPhone := util.GenerateOTP()
 	expire := time.Now().Add(duration)
 
-	return db.Model(&domain.User{}).
+	return otpEmail, otpPhone, db.Model(&domain.User{}).
 		Where("email = ? AND phone = ?", email, phone).
 		Updates(map[string]interface{}{
 			"email_otp":             otpEmail,
