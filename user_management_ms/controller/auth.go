@@ -33,16 +33,17 @@ var validate = validator.New()
 type AuthController struct {
 	userService services.IUserService
 	pin         services.IPinService
+	qrLogin     services.IQRLoginService
 	otp         services.IOtp
 }
 
-func NewAuthController(service services.IUserService, pin services.IPinService, otp services.IOtp) IAuthController {
-	return &AuthController{userService: service, otp: otp, pin: pin}
+func NewAuthController(service services.IUserService, pin services.IPinService, otp services.IOtp, qrlogin services.IQRLoginService) IAuthController {
+	return &AuthController{userService: service, otp: otp, pin: pin, qrLogin: qrlogin}
 }
 
 func (ac *AuthController) CheckLoginRequest(c *fiber.Ctx) error {
 	sessionId := c.Params("sessionId")
-	response, err := ac.userService.CheckLoginQr(sessionId)
+	response, err := ac.qrLogin.CheckLoginQr(sessionId)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -64,7 +65,7 @@ func (ac *AuthController) ApproveLoginRequest(c *fiber.Ctx) error {
 		})
 	}
 
-	if err := ac.userService.ApproveLoginQr(uint(userId.(float64)), req.SessionId); err != nil {
+	if err := ac.qrLogin.ApproveLoginQr(uint(userId.(float64)), req.SessionId); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -77,7 +78,7 @@ func (ac *AuthController) ApproveLoginRequest(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
-	png, sessionId, err := ac.userService.RequestLoginQr()
+	png, sessionId, err := ac.qrLogin.RequestLoginQr()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": err.Error(),
@@ -149,7 +150,7 @@ func (ac *AuthController) CompleteRegistration(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	response, err := ac.userService.CompleteRegistration(&request.CompleteRegisterRequest{UserId: uint(userId), Password: req.Password, BirthDate: req.BirthDate})
+	response, err := ac.userService.AddPasswordBirthdate(&request.CompleteRegisterRequest{UserId: uint(userId), Password: req.Password, BirthDate: req.BirthDate})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),

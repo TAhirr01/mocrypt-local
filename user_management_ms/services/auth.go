@@ -2,7 +2,6 @@ package services
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"time"
 	"user_management_ms/config"
@@ -10,9 +9,7 @@ import (
 	"user_management_ms/dtos/response"
 	"user_management_ms/repository/command_repository"
 	"user_management_ms/repository/query_repository"
-	"user_management_ms/util"
 
-	"github.com/hashicorp/go-uuid"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
@@ -21,15 +18,12 @@ import (
 
 type IUserService interface {
 	RegisterRequestOTP(request *request.StartRegistration) (*response.RegisterResponse, error)
-	CompleteRegistration(registerRequest *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error)
+	AddPasswordBirthdate(registerRequest *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error)
 	VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*response.AfterLoginVerification, error)
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
 	Setup2FA(userId uint) (*response.TwoFASetupResponse, error)
 	Verify2FA(userId uint, code string) (bool, error)
-	RequestLoginQr() ([]byte, string, error)
-	ApproveLoginQr(userId uint, sessionId string) error
-	CheckLoginQr(sessionId string) (*response.QrLoginResponse, error)
 }
 
 type UserService struct {
@@ -73,7 +67,7 @@ func (u *UserService) RegisterRequestOTP(req *request.StartRegistration) (*respo
 	return nil, errors.New("unable to process OTP request")
 }
 
-func (u *UserService) CompleteRegistration(req *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error) {
+func (u *UserService) AddPasswordBirthdate(req *request.CompleteRegisterRequest) (*response.AfterRegisterPassword, error) {
 	// 1. Check if user exists
 	user, err := u.query.GetByID(u.db, req.UserId)
 	if err != nil {
@@ -119,31 +113,14 @@ func (u *UserService) LoginLocal(req *request.LoginLocalRequest) (*response.Logi
 	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)) != nil {
 		return nil, errors.New("invalid password")
 	}
-
-	// OTP yenidən generate və Kafka event
-	emailOTP := util.GenerateOTP()
-	phoneOTP := util.GenerateOTP()
-	if err := u.command.SetUserEmailPhoneOtpAndExpireDates(u.db, user, emailOTP, phoneOTP); err != nil {
+	resp, err := u.otp.SendOTP(&request.OTPRequest{Email: req.Email, Phone: req.Phone})
+	if err != nil {
 		return nil, err
 	}
-	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{
-		Email:    user.Email,
-		EmailOTP: emailOTP,
-	}); err != nil {
-		log.Println("Failed to send email event:", err)
-	}
-
-	if err := SendVerifyPhoneNumberEventToKafka(&request.VerifyPhoneEvent{
-		Phone:    user.Phone,
-		PhoneOTP: phoneOTP,
-	}); err != nil {
-		log.Println("Failed to send phone event:", err)
-	}
-
 	return &response.LoginResponse{
 		UserId: user.Id,
-		Email:  user.Email,
-		Phone:  user.Phone,
+		Email:  resp.Email,
+		Phone:  req.Phone,
 	}, nil
 }
 
@@ -281,65 +258,4 @@ func (u *UserService) Verify2FA(userId uint, code string) (bool, error) {
 		}
 	}
 	return valid, nil
-}
-
-func (u *UserService) RequestLoginQr() ([]byte, string, error) {
-	sessionId, _ := uuid.GenerateUUID()
-	err := u.redis.StoreLoginSessionRedis(sessionId)
-	if err != nil {
-		return nil, "", err
-	}
-	url := fmt.Sprintf("https://mocadomain.com/qr-login?sessionId=%s", sessionId)
-	png, err := qrcode.Encode(url, qrcode.Medium, 256)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return png, sessionId, nil
-}
-
-func (u *UserService) ApproveLoginQr(userId uint, sessionId string) error {
-	session, err := u.redis.GetLoginSessionRedis(sessionId)
-	if err != nil {
-		return errors.New("session not found or redis problem")
-	}
-	session.UserId = userId
-	session.Status = "APPROVED"
-
-	if err := u.redis.UpdateLoginSessionRedis(sessionId, session); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (u *UserService) CheckLoginQr(sessionId string) (*response.QrLoginResponse, error) {
-	session, err := u.redis.GetLoginSessionRedis(sessionId)
-	if err != nil {
-		return &response.QrLoginResponse{Status: response.StatusExpired}, nil
-	}
-
-	switch session.Status {
-	case "PENDING":
-		return &response.QrLoginResponse{Status: response.StatusPending}, nil
-	case "APPROVED":
-		user, err := u.query.GetByID(u.db, session.UserId)
-		if err != nil {
-			return nil, err
-		}
-		tokens, err := u.jwt.GenerateTokens(user)
-		if err != nil {
-			return nil, err
-		}
-
-		// Once consumed, delete to avoid reuse
-		_ = u.redis.DeleteLoginSessionRedis(sessionId)
-
-		return &response.QrLoginResponse{
-			Status: response.StatusApproved,
-			Tokens: tokens,
-		}, nil
-
-	default:
-		return &response.QrLoginResponse{Status: response.StatusExpired}, nil
-	}
 }
