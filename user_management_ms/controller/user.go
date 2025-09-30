@@ -166,9 +166,11 @@ func (ac *AuthController) ResendOTP(c *fiber.Ctx) error {
 	if err := validate.Struct(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
 	}
-	response, err := ac.otp.SendOTP(&req)
+	response, err := ac.otp.ResendRegisterOtp(&req)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
 	}
 	return c.Status(fiber.StatusOK).JSON(response)
 }
