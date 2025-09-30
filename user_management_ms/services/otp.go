@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 	"time"
 	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
@@ -71,7 +72,7 @@ func (o *Otp) SendEmailOtp(req *request.OTPRequestEmail) (*response.OTPResponseE
 	if err := o.command.Update(o.db, user); err != nil {
 		return nil, err
 	}
-	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: otp}); err != nil {
+	if err := SendVerifyEmailEventToKafka(&request.VerifyEmailEvent{Email: user.Email, EmailOTP: otp}); err != nil {
 		return nil, err
 	}
 	return &response.OTPResponseEmail{
@@ -83,8 +84,12 @@ func (o *Otp) SendEmailOtp(req *request.OTPRequestEmail) (*response.OTPResponseE
 }
 
 func (o *Otp) SendOTP(req *request.OTPRequest) (*response.SendOTPResponse, error) {
-	if err := o.command.SaveUserOTPs(o.db, req.Email, req.Phone, 5*time.Minute); err != nil {
+	emailOtp, phoneOtp, err := o.command.SaveUserOTPs(o.db, req.Email, req.Phone, 5*time.Minute)
+	if err != nil {
 		return nil, err
+	}
+	if err := SendVerifyEmailAndPhoneNumberEvent(&request.VerifyEmailEvent{Email: req.Email, EmailOTP: emailOtp}, &request.VerifyPhoneEvent{Phone: req.Phone, PhoneOTP: phoneOtp}); err != nil {
+		log.Println("cannot send otp event", err)
 	}
 	return &response.SendOTPResponse{
 		Email:  req.Email,
