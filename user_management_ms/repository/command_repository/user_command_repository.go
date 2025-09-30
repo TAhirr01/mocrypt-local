@@ -79,10 +79,10 @@ func (u *UserCommandRepository) SaveUserOTPs(db *gorm.DB, email string, phone st
 	return db.Model(&domain.User{}).
 		Where("email = ? AND phone = ?", email, phone).
 		Updates(map[string]interface{}{
-			"email_otp":                    otpEmail,
-			"email_otp_expire_date":        expire,
-			"phone_number_otp":             otpPhone,
-			"phone_number_otp_expire_date": expire,
+			"email_otp":             otpEmail,
+			"email_otp_expire_date": expire,
+			"phone_otp":             otpPhone,
+			"phone_otp_expire_date": expire,
 		}).Error
 }
 func (u *UserCommandRepository) UpdatePasskeyAfterLogin(db *gorm.DB, credID []byte, auth []byte, signCount uint32) error {
