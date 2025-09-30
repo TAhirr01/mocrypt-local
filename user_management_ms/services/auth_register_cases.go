@@ -11,6 +11,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	CREATED              = "created"
+	SET_PIN              = "set_pin"
+	VERIFICATION_PENDING = "verification_pending"
+)
+
 type UserRegisterCases interface {
 	Handle(user *domain.User, req *request.StartRegistration) (*response.RegisterResponse, error)
 }
@@ -21,15 +27,11 @@ func (u HasntCompleted) Handle(user *domain.User, req *request.StartRegistration
 	if user.EmailVerified && user.PhoneVerified && user.Password == "" {
 		// User OTP verified amma registration tamamlanmayıb
 		return &response.RegisterResponse{
-			UserId:        user.Id,
-			UserType:      user.UserType,
-			Email:         user.Email,
-			Phone:         user.Phone,
-			EmailVerified: user.EmailVerified,
-			PhoneVerified: user.PhoneVerified,
-			Completed:     false,
-			HasPin:        true,
-			Status:        "verified",
+			UserId:   user.Id,
+			UserType: user.UserType,
+			Email:    user.Email,
+			Phone:    user.Phone,
+			Status:   PASSWORD_PENDING,
 		}, nil
 	}
 	return nil, nil
@@ -39,17 +41,7 @@ type SendLogin struct{}
 
 func (u SendLogin) Handle(user *domain.User, req *request.StartRegistration) (*response.RegisterResponse, error) {
 	if user.EmailVerified && user.PhoneVerified && user.Password != "" && user.PINHash != "" {
-		return &response.RegisterResponse{
-			UserId:        user.Id,
-			UserType:      user.UserType,
-			Email:         user.Email,
-			Phone:         user.Phone,
-			Status:        "verified",
-			EmailVerified: user.EmailVerified,
-			PhoneVerified: user.PhoneVerified,
-			Completed:     true,
-			HasPin:        true,
-		}, errors.New("User already exists login ")
+		return nil, errors.New("User already exists login ")
 	}
 	return nil, nil
 }
@@ -66,15 +58,11 @@ func (u NeedsVerification) Handle(user *domain.User, req *request.StartRegistrat
 			return nil, err
 		}
 		return &response.RegisterResponse{
-			UserId:        user.Id,
-			UserType:      user.UserType,
-			Email:         resp.Email,
-			Phone:         resp.Phone,
-			EmailVerified: user.EmailVerified,
-			PhoneVerified: user.PhoneVerified,
-			Completed:     false,
-			Status:        "verification_pending",
-			HasPin:        true,
+			UserId:   user.Id,
+			UserType: user.UserType,
+			Email:    resp.Email,
+			Phone:    resp.Phone,
+			Status:   VERIFICATION_PENDING,
 		}, nil
 	}
 	return nil, nil
@@ -105,15 +93,11 @@ func (u ExistingUser) Handle(user *domain.User, req *request.StartRegistration) 
 		return nil, err
 	}
 	return &response.RegisterResponse{
-		UserId:        newUser.Id,
-		UserType:      newUser.UserType,
-		Email:         sendOTP.Email,
-		Phone:         sendOTP.Phone,
-		Status:        "created",
-		EmailVerified: false,
-		PhoneVerified: false,
-		Completed:     false,
-		HasPin:        true,
+		UserId:   newUser.Id,
+		UserType: newUser.UserType,
+		Email:    sendOTP.Email,
+		Phone:    sendOTP.Phone,
+		Status:   CREATED,
 	}, nil
 }
 
@@ -122,15 +106,11 @@ type SetPin struct{}
 func (u SetPin) Handle(user *domain.User, req *request.StartRegistration) (*response.RegisterResponse, error) {
 	if user.EmailVerified && user.PhoneVerified && user.Password != "" && user.PINHash == "" {
 		return &response.RegisterResponse{
-			UserId:        user.Id,
-			UserType:      user.UserType,
-			Email:         user.Email,
-			Phone:         user.Phone,
-			Status:        "set_pin",
-			EmailVerified: user.EmailVerified,
-			PhoneVerified: user.PhoneVerified,
-			HasPin:        false,
-			Completed:     false,
+			UserId:   user.Id,
+			UserType: user.UserType,
+			Email:    user.Email,
+			Phone:    user.Phone,
+			Status:   SET_PIN,
 		}, nil
 	}
 	return nil, nil
