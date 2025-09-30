@@ -40,7 +40,7 @@ func NewPasskeyService(wa *webauthn.WebAuthn, db *gorm.DB, command command_repos
 
 // RegisterStart start passkey registration stores temporary session inside redis
 func (ps *PasskeyService) RegisterStart(req *request.StartPasskeyRegistrationRequest) (*protocol.CredentialCreation, error) {
-	// 1. Fetch user + existing passkeys from DB
+
 	user, err := ps.query.GetByID(ps.db, req.UserId)
 
 	if err != nil {
@@ -50,13 +50,11 @@ func (ps *PasskeyService) RegisterStart(req *request.StartPasskeyRegistrationReq
 		return nil, errors.New("User doesn't completed registration ")
 	}
 
-	// 2. Begin registration (generates challenge)
 	options, sessionData, err := ps.wa.BeginRegistration(user)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Store session temporarily for FinishRegistration
 	if err := ps.redis.StoreRegistrationSessionRedis(user.Id, sessionData); err != nil {
 		return nil, err
 	}
@@ -97,14 +95,12 @@ func (ps *PasskeyService) RegisterFinish(userID uint, r *http.Request) error {
 }
 
 func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, error) {
-	// Generate a temporary session ID
-	sessionID, _ := uuid.GenerateUUID() // implement a UUID generator
+	sessionID, _ := uuid.GenerateUUID()
 	assertion, sessionData, err := ps.wa.BeginDiscoverableLogin()
 
 	if err != nil {
 		return nil, "", err
 	}
-	// Store session in Redis for later finish
 	if err := ps.redis.StoreSessionRedis(sessionID, sessionData); err != nil {
 		return nil, "", err
 	}
@@ -115,7 +111,6 @@ func (ps *PasskeyService) LoginStart() (*protocol.CredentialAssertion, string, e
 // LoginFinish validates the assertion response and updates signCount for the credential used
 // Fixed LoginFinish method
 func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*response.Tokens, error) {
-	// Retrieve session data from Redis
 	sessionData, err := ps.redis.GetSessionRedis(sessionID)
 	if err != nil {
 		return nil, errors.New("failed to get session data")
@@ -134,13 +129,11 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*respo
 		return nil, errors.New("failed to parse credential response")
 	}
 
-	// Extract the credential ID from the response
 	credentialID := resp.RawID
 	if len(credentialID) == 0 {
 		return nil, errors.New("missing credential ID in response")
 	}
 
-	// Find user by credential ID BEFORE calling FinishDiscoverableLogin
 	user, err := ps.query.GetUserByCredentialID(ps.db, credentialID)
 	if err != nil {
 
@@ -160,7 +153,6 @@ func (ps *PasskeyService) LoginFinish(sessionID string, r *http.Request) (*respo
 		log.Printf("Warning: failed to update passkey after login: %v", err)
 	}
 
-	// Clean up: delete the temporary session
 	if err := ps.redis.DeleteSessionRedis(sessionID); err != nil {
 		log.Printf("Warning: failed to delete session: %v", err)
 	}
