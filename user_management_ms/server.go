@@ -70,6 +70,7 @@ func (s *Server) Start() *fiber.App {
 	authGroup.Post("/google/verify-otp/:userId", s.GoogleAuthController.GoogleVerifyRequestOTP)
 	authGroup.Post("/google/complete-registration/:userId", s.GoogleAuthController.CompleteGoogleRegistration)
 	authGroup.Post("/google/login/verify-otp/:userId", s.GoogleAuthController.GoogleVerifyLoginRequestOtp)
+	authGroup.Post("/google/login/resend-otp/:userId", s.GoogleAuthController.ResendOTP)
 
 	authGroup.Post("/register/start", middleware.AuthMiddleware(), s.WebAuthnController.RegisterStart)
 	authGroup.Post("/register/finish", middleware.AuthMiddleware(), s.WebAuthnController.RegisterFinish)
