@@ -242,7 +242,7 @@ func (g *GoogleAuthService) LoginOrRegister(isNew bool, user *domain.User) (*res
 		}, nil
 	}
 	if isNew == false && user.PhoneVerified && user.Password != "" {
-		if _, err := g.otp.SendEmailOtp(&request.OTPRequestEmail{UserId: user.Id}); err != nil {
+		if _, err := g.otp.SendEmailOtp(&request.OTPRequestEmail{UserId: user.Id, Email: user.Email}); err != nil {
 			return nil, err
 		}
 		return &response.CallBackResponse{
