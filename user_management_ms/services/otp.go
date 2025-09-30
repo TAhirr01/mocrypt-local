@@ -12,6 +12,10 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	PASSWORD_PENDING = "PASSWORD_PENDING"
+)
+
 type IOtp interface {
 	VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTPResponsePhone, error)
 	SendEmailOtp(req *request.OTPRequestEmail) (*response.OTPResponseEmail, error)
@@ -48,10 +52,10 @@ func (o *Otp) VerifyPhoneOTP(req *request.VerifyNumberOTPRequest) (*response.OTP
 		return nil, err
 	}
 	return &response.OTPResponsePhone{
+		UserId:        user.Id,
 		Phone:         user.Phone,
 		PhoneVerified: user.PhoneVerified,
-		Status:        "otp_verified",
-		Message:       "Completion of registration is needed ",
+		Status:        PASSWORD_PENDING,
 	}, nil
 }
 
@@ -75,7 +79,6 @@ func (o *Otp) SendEmailOtp(req *request.OTPRequestEmail) (*response.OTPResponseE
 		EmailVerified: user.EmailVerified,
 		Email:         req.Email,
 		Status:        "otp_sent",
-		Message:       "Email OTP sent",
 	}, nil
 }
 
@@ -139,7 +142,6 @@ func (o *Otp) SendPhoneOtp(req *request.OTPRequestPhone) (*response.OTPResponseP
 		PhoneVerified: user.PhoneVerified,
 		Phone:         req.Phone,
 		Status:        "otp_sent",
-		Message:       "Email OTP sent",
 	}, nil
 }
 
@@ -164,11 +166,9 @@ func (o *Otp) VerifyOTPs(otRequest *request.VerifyOTPRequest) (*response.OTPResp
 	}
 
 	return &response.OTPResponse{
-		UserId:        user.Id,
-		Email:         user.Email,
-		Phone:         user.Phone,
-		Status:        "otp_verified",
-		EmailVerified: user.EmailVerified,
-		PhoneVerified: user.PhoneVerified,
+		UserId: user.Id,
+		Email:  user.Email,
+		Phone:  user.Phone,
+		Status: PASSWORD_PENDING,
 	}, nil
 }
