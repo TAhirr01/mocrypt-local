@@ -71,7 +71,6 @@ func (ac *AuthController) ApproveLoginRequest(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Println(userId)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "QR login approved",
 	})
@@ -91,20 +90,9 @@ func (ac *AuthController) QrLoginRequest(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) RegisterRequestOTP(c *fiber.Ctx) error {
-
-	var req request.StartRegistration
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	response, err := ac.userService.RegisterRequestOTP(&req)
+	req := c.Locals("body").(*request.StartRegistration)
+	log.Println(req)
+	response, err := ac.userService.RegisterRequestOTP(req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -116,17 +104,7 @@ func (ac *AuthController) RegisterRequestOTP(c *fiber.Ctx) error {
 func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, err := strconv.Atoi(userIdParam)
-	var req request.EmailAndPhoneOTP
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
+	req := c.Locals("body").(*request.EmailAndPhoneOTP)
 	response, err := ac.otp.VerifyOTPs(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -139,17 +117,7 @@ func (ac *AuthController) VerifyRegisterOTP(c *fiber.Ctx) error {
 func (ac *AuthController) CompleteRegistration(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, err := strconv.Atoi(userIdParam)
-	var req request.BirthDateAndPassword
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
+	req := c.Locals("body").(*request.BirthDateAndPassword)
 	response, err := ac.userService.AddPasswordBirthdate(&request.CompleteRegisterRequest{UserId: uint(userId), Password: req.Password, BirthDate: req.BirthDate})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -160,14 +128,8 @@ func (ac *AuthController) CompleteRegistration(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) ResendOTP(c *fiber.Ctx) error {
-	var req request.OTPRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
-	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{})
-	}
-	response, err := ac.otp.ResendRegisterOtp(&req)
+	req := c.Locals("body").(*request.OTPRequest)
+	response, err := ac.otp.ResendRegisterOtp(req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -177,13 +139,8 @@ func (ac *AuthController) ResendOTP(c *fiber.Ctx) error {
 }
 
 func (ac *AuthController) LoginLocal(c *fiber.Ctx) error {
-	var req request.LoginLocalRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	response, err := ac.userService.LoginLocal(&req)
+	req := c.Locals("body").(*request.LoginLocalRequest)
+	response, err := ac.userService.LoginLocal(req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
@@ -195,18 +152,7 @@ func (ac *AuthController) LoginLocal(c *fiber.Ctx) error {
 func (ac *AuthController) VerifyLoginOTP(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, err := strconv.Atoi(userIdParam)
-	var req request.EmailAndPhoneOTP
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	if err := validate.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	log.Println(userId)
+	req := c.Locals("body").(*request.EmailAndPhoneOTP)
 	response, err := ac.userService.VerifyLoginOTP(&request.VerifyOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP, PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -248,14 +194,8 @@ func (ac *AuthController) Setup2FA(c *fiber.Ctx) error {
 
 func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
 	userId := c.Locals("userId")
-
-	var body struct {
-		Code string `json:"code"`
-	}
-	if err := c.BodyParser(&body); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-	}
-	verified, err := ac.userService.Verify2FA(uint(userId.(float64)), body.Code)
+	req := c.Locals("body").(*request.VerifyTwoFa)
+	verified, err := ac.userService.Verify2FA(uint(userId.(float64)), req)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
@@ -269,34 +209,18 @@ func (ac *AuthController) Verify2FA(c *fiber.Ctx) error {
 func (ac *AuthController) SetPIN(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-
-	req := struct {
-		Pin string `json:"pin"`
-	}{}
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
-	}
-
-	if err := ac.pin.SetPIN(uint(userId), req.Pin); err != nil {
+	req := c.Locals("body").(*request.PinReq)
+	if err := ac.pin.SetPIN(uint(userId), req); err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
-
 	return c.JSON(fiber.Map{"message": "PIN set successfully"})
 }
 
 func (ac *AuthController) VerifyPIN(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-
-	req := struct {
-		Pin string `json:"pin"`
-	}{}
-
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
-	}
-
-	tokens, valid, err := ac.pin.VerifyPIN(uint(userId), req.Pin)
+	req := c.Locals("body").(*request.PinReq)
+	tokens, valid, err := ac.pin.VerifyPIN(uint(userId), req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	}
