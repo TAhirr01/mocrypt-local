@@ -11,6 +11,6 @@ type PhoneRequest struct {
 
 type StartRegistration struct {
 	Email    string `json:"email" validate:"required,email"`
-	Phone    string `json:"phone" validate:"required"`
+	Phone    string `json:"phone" validate:"required,phone"`
 	UserType string `json:"user_type" validate:"required"`
 }
