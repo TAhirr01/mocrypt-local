@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"user_management_ms/middleware"
 	"user_management_ms/repository/command_repository"
 	"user_management_ms/repository/query_repository"
 	"user_management_ms/services"
@@ -77,6 +78,8 @@ func (s *service) Start() {
 	s.logger = config.InitLogger()
 	// NOTE: Dependency Injections
 	log.Info("WebAuthn configurated successfully")
+
+	middleware.InitValidator()
 	s.DependencyInjection()
 	//TODO: coment and log
 
