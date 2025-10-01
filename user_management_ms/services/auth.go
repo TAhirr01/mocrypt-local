@@ -23,7 +23,7 @@ type IUserService interface {
 	LoginLocal(req *request.LoginLocalRequest) (*response.LoginResponse, error)
 	RefreshToken(req *request.RefreshTokenReq) (*response.Tokens, error)
 	Setup2FA(userId uint) (*response.TwoFASetupResponse, error)
-	Verify2FA(userId uint, code string) (bool, error)
+	Verify2FA(userId uint, fa *request.VerifyTwoFa) (bool, error)
 }
 
 type UserService struct {
@@ -129,7 +129,6 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
-	log.Println(user)
 
 	if user.EmailOtpExpireDate != nil && user.PhoneOtpExpireDate != nil {
 		if time.Now().After(*user.EmailOtpExpireDate) || user.EmailOtp != otRequest.EmailOTP {
@@ -146,7 +145,7 @@ func (u *UserService) VerifyLoginOTP(otRequest *request.VerifyOTPRequest) (*resp
 			return nil, errors.New("user needs to be verified")
 		}
 	}
-
+	user.Loginable = true
 	if err := u.command.DeleteUserOtpAndExpireDate(u.db, user); err != nil {
 		return nil, err
 	}
@@ -244,12 +243,12 @@ func (u *UserService) Setup2FA(userId uint) (*response.TwoFASetupResponse, error
 	}, nil
 }
 
-func (u *UserService) Verify2FA(userId uint, code string) (bool, error) {
+func (u *UserService) Verify2FA(userId uint, req *request.VerifyTwoFa) (bool, error) {
 	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return false, err
 	}
-	valid := totp.Validate(code, user.Google2FASecret)
+	valid := totp.Validate(req.Code, user.Google2FASecret)
 	if valid {
 		user.Is2FAVerified = true
 		err := u.command.Update(u.db, user)
