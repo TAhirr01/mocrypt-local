@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"log"
 	"strconv"
 	"user_management_ms/dtos/request"
 	"user_management_ms/services"
@@ -76,13 +75,7 @@ func (ac *GoogleAuthController) GoogleCallback(c *fiber.Ctx) error {
 func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-	var req request.PhoneRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	log.Println(req.Phone)
+	req := c.Locals("body").(*request.PhoneRequest)
 	res, err := ac.googleService.StartGoogleRegistration(&request.StartGoogleRegistration{UserId: uint(userId), Phone: req.Phone})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -95,12 +88,7 @@ func (ac *GoogleAuthController) GoogleRequestPhoneOTP(c *fiber.Ctx) error {
 func (ac *GoogleAuthController) GoogleVerifyRequestOTP(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-	var req request.PhoneOTP
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
+	req := c.Locals("body").(*request.PhoneOTP)
 	res, err := ac.otp.VerifyPhoneOTP(&request.VerifyNumberOTPRequest{UserId: uint(userId), PhoneOTP: req.PhoneOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -113,12 +101,7 @@ func (ac *GoogleAuthController) GoogleVerifyRequestOTP(c *fiber.Ctx) error {
 func (ac *GoogleAuthController) GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-	var req request.EmailOTP
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
+	req := c.Locals("body").(*request.EmailOTP)
 	tokens, err := ac.googleService.VerifyGoogleLoginOtp(&request.VerifyEmailOTPRequest{UserId: uint(userId), EmailOTP: req.EmailOTP})
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -131,13 +114,8 @@ func (ac *GoogleAuthController) GoogleVerifyLoginRequestOtp(c *fiber.Ctx) error 
 func (ac *GoogleAuthController) CompleteGoogleRegistration(c *fiber.Ctx) error {
 	userIdParam := c.Params("userId")
 	userId, _ := strconv.Atoi(userIdParam)
-	var compete request.BirthDateAndPassword
-	if err := c.BodyParser(&compete); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	res, err := ac.googleService.CompleteGoogleRegistration(&request.CompleteGoogleRegistration{UserId: uint(userId), BirthDate: compete.BirthDate, Password: compete.Password})
+	req := c.Locals("body").(*request.BirthDateAndPassword)
+	res, err := ac.googleService.CompleteGoogleRegistration(uint(userId), req)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": err.Error(),
