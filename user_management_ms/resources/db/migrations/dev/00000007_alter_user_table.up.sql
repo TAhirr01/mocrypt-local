@@ -1,0 +1,2 @@
+ALTER TABLE users
+    ADD loginable BIT NOT NULL DEFAULT 0;
