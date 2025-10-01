@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"user_management_ms/dtos/request"
 	"user_management_ms/dtos/response"
 	"user_management_ms/repository/command_repository"
 	"user_management_ms/repository/query_repository"
@@ -11,8 +12,8 @@ import (
 )
 
 type IPinService interface {
-	SetPIN(userId uint, pin string) error
-	VerifyPIN(userId uint, pin string) (*response.Tokens, bool, error)
+	SetPIN(userId uint, request *request.PinReq) error
+	VerifyPIN(userId uint, request *request.PinReq) (*response.Tokens, bool, error)
 }
 
 type PinService struct {
@@ -26,13 +27,13 @@ func NewPinService(query query_repository.IUserQueryRepository, command command_
 	return &PinService{query: query, db: db, command: command, jwt: jwt}
 }
 
-func (u *PinService) SetPIN(userId uint, pin string) error {
+func (u *PinService) SetPIN(userId uint, req *request.PinReq) error {
 	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return err
 	}
 
-	hashed, err := util.HashPIN(pin)
+	hashed, err := util.HashPIN(req.Pin)
 	if err != nil {
 		return err
 	}
@@ -41,16 +42,19 @@ func (u *PinService) SetPIN(userId uint, pin string) error {
 	return u.command.Update(u.db, user)
 }
 
-func (u *PinService) VerifyPIN(userId uint, pin string) (*response.Tokens, bool, error) {
+func (u *PinService) VerifyPIN(userId uint, req *request.PinReq) (*response.Tokens, bool, error) {
 	user, err := u.query.GetByID(u.db, userId)
 	if err != nil {
 		return nil, false, err
+	}
+	if !user.Loginable {
+		return nil, false, errors.New("verify login first")
 	}
 
 	if user.PINHash == "" {
 		return nil, false, errors.New("PIN not set")
 	}
-	valid := util.VerifyPIN(pin, user.PINHash)
+	valid := util.VerifyPIN(req.Pin, user.PINHash)
 	if !valid {
 		return nil, false, errors.New("invalid PIN")
 	}
