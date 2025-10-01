@@ -25,7 +25,7 @@ type IGoogleAuthService interface {
 	VerifyGoogleIDToken(idToken string) (*response.GoogleUser, error)
 	FindUserByGoogleID(id string) (*domain.User, error)
 	StartGoogleRegistration(req *request.StartGoogleRegistration) (*response.GoogleResponse, error)
-	CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.AfterRegisterPassword, error)
+	CompleteGoogleRegistration(userId uint, req *request.BirthDateAndPassword) (*response.AfterRegisterPassword, error)
 	VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequest) (*response.AfterLoginVerification, error)
 	CreteNewGoogleUser(email, googleId string) (*domain.User, bool, error)
 	LoginOrRegister(isNew bool, user *domain.User) (*response.CallBackResponse, error)
@@ -130,9 +130,9 @@ func (g *GoogleAuthService) FindUserByGoogleID(id string) (*domain.User, error) 
 	return user, nil
 }
 
-func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoogleRegistration) (*response.AfterRegisterPassword, error) {
+func (g *GoogleAuthService) CompleteGoogleRegistration(userId uint, req *request.BirthDateAndPassword) (*response.AfterRegisterPassword, error) {
 	// 1. Check if user exists
-	user, err := g.query.GetByID(g.db, req.UserId)
+	user, err := g.query.GetByID(g.db, userId)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (g *GoogleAuthService) CompleteGoogleRegistration(req *request.CompleteGoog
 	// 4. Update birthday + password
 	user, err = g.command.UpdateUserPasswordAndBirthDateById(
 		g.db,
-		req.UserId,
+		userId,
 		string(hashedPassword),
 		req.BirthDate,
 	)
@@ -181,6 +181,7 @@ func (g *GoogleAuthService) VerifyGoogleLoginOtp(req *request.VerifyEmailOTPRequ
 	}
 	user.EmailOtp = ""
 	user.EmailOtpExpireDate = nil
+	user.Loginable = true
 	if err := g.command.Update(g.db, user); err != nil {
 		return nil, err
 	}
