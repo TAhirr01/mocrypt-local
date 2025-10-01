@@ -17,6 +17,7 @@ type User struct {
 	Email              string     `gorm:"size:100;not null" json:"email"`
 	Phone              string     `gorm:"size:100;not null" json:"phone"`
 	BirthDate          *time.Time `gorm:"default:NULL" json:"birth_date"`
+	Loginable          bool       `gorm:"default:false" json:"loginable"`
 	Password           string     `gorm:"size:100;not null" json:"password"`
 	GoogleID           string     `gorm:"size:100;" json:"google_id"`
 	EmailOtp           string     `gorm:"size:100;not null" json:"email_otp"`
