@@ -31,4 +31,7 @@ Thumbs.db
 # Coverage reports
 coverage.out
 
+
+#Enviroment variables
+.env
 go.sum
