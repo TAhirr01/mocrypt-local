@@ -33,5 +33,5 @@ coverage.out
 
 
 #Enviroment variables
-.env
+../.env
 go.sum
