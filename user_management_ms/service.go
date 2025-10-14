@@ -110,10 +110,10 @@ func (s *service) DependencyInjection() {
 	s.query = query_repository.NewUserQueryRepository()
 	s.command = command_repository.NewUserCommandRepository()
 	// NOTE: Services Injections
-	s.qrLogin = services.NewQRLoginService(s.redisService, s.query, s.dbConnection)
 	s.otp = services.NewOtpService(s.dbConnection, s.query, s.command)
 	s.pin = services.NewPinService(s.query, s.command, s.dbConnection, s.jwtService)
 	s.redisService = services.NewRedisService(s.redisClient)
+	s.qrLogin = services.NewQRLoginService(s.redisService, s.jwtService, s.query, s.dbConnection)
 	s.userService = services.NewUserService(s.dbConnection, s.redisService, s.otp, s.command, s.query, s.jwtService)
 	s.googleService = services.NewGoogleAuthService(s.dbConnection, s.oauthConfig, s.command, s.query, s.jwtService, s.redisService, s.otp)
 	s.passkeyService = services.NewPasskeyService(s.webAuthn, s.dbConnection, s.command, s.query, s.redisService, s.jwtService)
