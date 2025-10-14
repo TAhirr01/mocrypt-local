@@ -24,8 +24,8 @@ type QRLoginService struct {
 	query query_repository.IUserQueryRepository
 }
 
-func NewQRLoginService(redis IRedisService, query query_repository.IUserQueryRepository, db *gorm.DB) IQRLoginService {
-	return &QRLoginService{redis: redis, query: query, db: db}
+func NewQRLoginService(redis IRedisService, jwt IJWTService, query query_repository.IUserQueryRepository, db *gorm.DB) IQRLoginService {
+	return &QRLoginService{redis: redis, jwt: jwt, query: query, db: db}
 }
 
 func (u *QRLoginService) RequestLoginQr() ([]byte, string, error) {
