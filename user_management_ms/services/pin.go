@@ -60,6 +60,9 @@ func (u *PinService) VerifyPIN(userId uint, req *request.PinReq) (*response.Toke
 	}
 
 	token, err := u.jwt.GenerateTokens(user)
-
+	user.Loginable = false
+	if err := u.command.Update(u.db, user); err != nil {
+		return nil, false, err
+	}
 	return token, true, err
 }
