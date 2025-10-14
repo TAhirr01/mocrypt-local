@@ -49,7 +49,7 @@ func (s *Server) Start() *fiber.App {
 	apiVersion := contextPath.Group(config.Conf.Application.Server.ApiVersion)
 
 	authGroup := apiVersion.Group("/auth")
-	authGroup.Use(middleware.LoggingMiddleware(s.Logger))
+	authGroup.Use(middleware.LoggingMiddleware(s.Logger), middleware.RecoveryMiddleware())
 	authGroup.Post("/request-otp", middleware.ValidateBody[request.StartRegistration](), s.AuthController.RegisterRequestOTP)
 	authGroup.Post("/verify-otp/:userId", middleware.ValidateBody[request.EmailAndPhoneOTP](), s.AuthController.VerifyRegisterOTP)
 	authGroup.Post("/resend-otp", middleware.ValidateBody[request.OTPRequest](), s.AuthController.ResendOTP)
